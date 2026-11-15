@@ -43,7 +43,7 @@ export async function refreshToken() {
   if (!(await isSupported())) return;
   const reg = swReg || (await navigator.serviceWorker.ready);
   const messaging = getMessaging(store.app);
-  const token = await getToken(messaging, { vapidKey: window.FIREBASE_VAPID_KEY, serviceWorkerRegistration: reg });
+  const token = await getToken(messaging, { vapidKey: window.FIREBASE_VAPID_KEY || undefined, serviceWorkerRegistration: reg });
   if (token) await store.addPushToken(token);
 }
 
