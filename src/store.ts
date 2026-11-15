@@ -1,21 +1,8 @@
-import { initializeApp, type FirebaseApp } from "firebase/app";
-import { getAuth, onAuthStateChanged, signInAnonymously } from "firebase/auth";
-import {
-  initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
-  collection,
-  doc,
-  onSnapshot,
-  setDoc,
-  deleteDoc,
-  increment,
-  serverTimestamp,
-  getDocs,
-  writeBatch,
-  type Firestore,
-  type Unsubscribe,
-} from "firebase/firestore";
+// Données de l'appli : stockées dans Supabase (projet partagé avec le GDC, tables rappels_*).
+// Chaque téléphone a une clé secrète ; une copie locale permet d'ouvrir l'appli instantanément, même hors ligne.
+
+export const SUPABASE_URL = "https://mqeiqlqwmktrrgjzrshz.supabase.co";
+const SUPABASE_KEY = "sb_publishable_0mt-3rvdmw0FUYRd8CZuUg_qyTkU0Ey";
 
 export interface Task {
   id: string;
@@ -37,16 +24,6 @@ export interface Reminder {
 }
 
 export const COLORS = ["#ff7a59", "#ffc93c", "#5ef2b0", "#4cc9ff", "#a78bfa", "#ff6bcb", "#f97316", "#84cc16"];
-
-declare global {
-  interface Window {
-    FIREBASE_CONFIG?: Record<string, string>;
-    FIREBASE_VAPID_KEY?: string;
-  }
-}
-
-export const firebaseConfig = window.FIREBASE_CONFIG;
-export const isDemo = !firebaseConfig || !firebaseConfig.apiKey;
 
 export function todayKey(d = new Date()): string {
   const y = d.getFullYear();
@@ -71,6 +48,50 @@ function seed(): { tasks: Task[]; reminders: Reminder[] } {
   };
 }
 
+const LS = {
+  key: "rappels:key",
+  data: "rappels:data",
+  progress: (d: string) => "rappels:progress:" + d,
+  queue: "rappels:queue",
+};
+
+function readJSON<T>(k: string, fallback: T): T {
+  try {
+    const v = localStorage.getItem(k);
+    return v ? (JSON.parse(v) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function writeJSON(k: string, v: unknown) {
+  try {
+    localStorage.setItem(k, JSON.stringify(v));
+  } catch {
+    /* stockage plein ou indisponible */
+  }
+}
+
+function deviceKey(): string {
+  let k = localStorage.getItem(LS.key);
+  if (!k) {
+    k = crypto.randomUUID();
+    localStorage.setItem(LS.key, k);
+  }
+  return k;
+}
+
+export async function rpc<T = unknown>(fn: string, args: Record<string, unknown>): Promise<T> {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify(args),
+  });
+  if (!res.ok) throw new Error(`${fn} : ${res.status} ${await res.text()}`);
+  const txt = await res.text();
+  return (txt ? JSON.parse(txt) : null) as T;
+}
+
+type QueuedCall = { fn: string; args: Record<string, unknown> };
 type Listener = () => void;
 
 class Store {
@@ -79,12 +100,10 @@ class Store {
   counts: Record<string, number> = {};
   date = todayKey();
   ready = false;
-  user: string | null = null;
-  app: FirebaseApp | null = null;
-  private db: Firestore | null = null;
+  vapidPublic = "";
+  readonly key = deviceKey();
   private listeners = new Set<Listener>();
-  private unsubs: Unsubscribe[] = [];
-  private progressUnsub: Unsubscribe | null = null;
+  private flushing = false;
 
   subscribe(fn: Listener) {
     this.listeners.add(fn);
@@ -95,105 +114,84 @@ class Store {
   }
 
   async init() {
-    if (isDemo) return this.initLocal();
-    this.app = initializeApp(firebaseConfig!);
-    this.db = initializeFirestore(this.app, {
-      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-    });
-    const auth = getAuth(this.app);
-    await new Promise<void>((resolve, reject) => {
-      const off = onAuthStateChanged(auth, async (u) => {
-        if (u) {
-          off();
-          this.user = u.uid;
-          resolve();
-        } else {
-          signInAnonymously(auth).catch(reject);
-        }
-      });
-    });
-    await this.initRemote();
+    // 1. Affichage immédiat depuis la copie locale
+    const cached = readJSON<{ tasks: Task[]; reminders: Reminder[]; vapidPublic?: string } | null>(LS.data, null);
+    if (cached) {
+      this.tasks = cached.tasks;
+      this.reminders = cached.reminders;
+      this.vapidPublic = cached.vapidPublic || "";
+      this.counts = readJSON(LS.progress(this.date), {});
+      this.ready = true;
+      this.emit();
+    }
+    // 2. Synchronisation avec le serveur
+    try {
+      await this.flush();
+      await this.pull();
+    } catch (e) {
+      console.warn("Hors ligne, on garde la copie locale", e);
+      if (!this.ready) {
+        const s = seed();
+        this.tasks = s.tasks;
+        this.reminders = s.reminders;
+        this.ready = true;
+        this.saveLocal();
+        this.emit();
+      }
+    }
+    addEventListener("online", () => this.flush().then(() => this.pull()).catch(() => {}));
   }
 
-  // ---------- Mode démo (localStorage) ----------
-  private initLocal() {
-    const raw = localStorage.getItem("rappels:data");
-    if (raw) {
-      const d = JSON.parse(raw);
-      this.tasks = d.tasks;
-      this.reminders = d.reminders;
-    } else {
+  /** Recharge depuis le serveur */
+  async pull() {
+    const d = await rpc<{ isNew: boolean; vapidPublic: string; tasks: Task[]; reminders: Reminder[]; counts: Record<string, number> }>(
+      "rappels_load",
+      { p_key: this.key, p_day: this.date }
+    );
+    this.vapidPublic = d.vapidPublic;
+    if (d.isNew && !d.tasks.length && !readJSON(LS.data, null)) {
+      // Premier lancement : tâche et rappels d'exemple
       const s = seed();
       this.tasks = s.tasks;
       this.reminders = s.reminders;
-      this.saveLocal();
+      s.tasks.forEach((t) => this.call("rappels_save_task", { p: t }));
+      s.reminders.forEach((r) => this.call("rappels_save_reminder", { p: r }));
+    } else {
+      this.tasks = d.tasks;
+      this.reminders = d.reminders;
+      this.counts = d.counts;
+      writeJSON(LS.progress(this.date), this.counts);
     }
-    this.loadLocalProgress();
     this.ready = true;
+    this.saveLocal();
     this.emit();
   }
+
   private saveLocal() {
-    localStorage.setItem("rappels:data", JSON.stringify({ tasks: this.tasks, reminders: this.reminders }));
-  }
-  private loadLocalProgress() {
-    this.counts = JSON.parse(localStorage.getItem("rappels:progress:" + this.date) || "{}");
+    writeJSON(LS.data, { tasks: this.tasks, reminders: this.reminders, vapidPublic: this.vapidPublic });
   }
 
-  // ---------- Mode Firebase ----------
-  private userPath() {
-    return `users/${this.user}`;
+  /** Envoie une modification au serveur ; si pas de réseau, elle est gardée et renvoyée plus tard */
+  private call(fn: string, args: Record<string, unknown>) {
+    const q = readJSON<QueuedCall[]>(LS.queue, []);
+    q.push({ fn, args: { p_key: this.key, ...args } });
+    writeJSON(LS.queue, q);
+    this.flush().catch(() => {});
   }
 
-  private async initRemote() {
-    const db = this.db!;
-    const base = this.userPath();
-    await setDoc(
-      doc(db, base),
-      { lastSeen: serverTimestamp(), appUrl: new URL("./", location.href).href, tz: Intl.DateTimeFormat().resolvedOptions().timeZone },
-      { merge: true }
-    );
-
-    // Premier lancement : on crée la tâche et les rappels d'exemple
-    const existing = await getDocs(collection(db, base, "tasks"));
-    if (existing.empty && !localStorage.getItem("rappels:seeded:" + this.user)) {
-      const s = seed();
-      const batch = writeBatch(db);
-      s.tasks.forEach((t) => batch.set(doc(db, base, "tasks", t.id), t));
-      s.reminders.forEach((r) => batch.set(doc(db, base, "reminders", r.id), { ...r, uid: this.user }));
-      await batch.commit();
-      localStorage.setItem("rappels:seeded:" + this.user, "1");
+  private async flush() {
+    if (this.flushing) return;
+    this.flushing = true;
+    try {
+      let q = readJSON<QueuedCall[]>(LS.queue, []);
+      while (q.length) {
+        await rpc(q[0].fn, q[0].args);
+        q = readJSON<QueuedCall[]>(LS.queue, []).slice(1);
+        writeJSON(LS.queue, q);
+      }
+    } finally {
+      this.flushing = false;
     }
-
-    let gotTasks = false;
-    let gotReminders = false;
-    const markReady = () => {
-      if (gotTasks && gotReminders && !this.ready) this.ready = true;
-      this.emit();
-    };
-    this.unsubs.push(
-      onSnapshot(collection(db, base, "tasks"), (snap) => {
-        this.tasks = snap.docs.map((d) => d.data() as Task).sort((a, b) => a.order - b.order);
-        gotTasks = true;
-        markReady();
-      })
-    );
-    this.unsubs.push(
-      onSnapshot(collection(db, base, "reminders"), (snap) => {
-        this.reminders = snap.docs.map((d) => d.data() as Reminder).sort((a, b) => a.time.localeCompare(b.time));
-        gotReminders = true;
-        markReady();
-      })
-    );
-    this.watchProgress();
-  }
-
-  private watchProgress() {
-    if (isDemo) return;
-    this.progressUnsub?.();
-    this.progressUnsub = onSnapshot(doc(this.db!, this.userPath(), "progress", this.date), (snap) => {
-      this.counts = (snap.data()?.counts as Record<string, number>) || {};
-      this.emit();
-    });
   }
 
   /** À appeler régulièrement : remet les jauges à zéro quand on change de jour */
@@ -201,10 +199,9 @@ class Store {
     const k = todayKey();
     if (k === this.date) return false;
     this.date = k;
-    this.counts = {};
-    if (isDemo) this.loadLocalProgress();
-    else this.watchProgress();
+    this.counts = readJSON(LS.progress(k), {});
     this.emit();
+    this.pull().catch(() => {});
     return true;
   }
 
@@ -217,16 +214,9 @@ class Store {
     const cur = this.count(taskId);
     if (delta < 0 && cur <= 0) return;
     this.counts = { ...this.counts, [taskId]: cur + delta };
+    writeJSON(LS.progress(this.date), this.counts);
     this.emit();
-    if (isDemo) {
-      localStorage.setItem("rappels:progress:" + this.date, JSON.stringify(this.counts));
-    } else {
-      setDoc(
-        doc(this.db!, this.userPath(), "progress", this.date),
-        { counts: { [taskId]: increment(delta) }, updatedAt: serverTimestamp() },
-        { merge: true }
-      );
-    }
+    this.call("rappels_bump", { p_day: this.date, p_task: taskId, p_delta: delta });
   }
 
   saveTask(t: Task) {
@@ -234,18 +224,17 @@ class Store {
     if (i >= 0) this.tasks[i] = t;
     else this.tasks.push(t);
     this.tasks.sort((a, b) => a.order - b.order);
+    this.saveLocal();
     this.emit();
-    if (isDemo) this.saveLocal();
-    else setDoc(doc(this.db!, this.userPath(), "tasks", t.id), t);
+    this.call("rappels_save_task", { p: t });
   }
 
   deleteTask(id: string) {
     this.tasks = this.tasks.filter((t) => t.id !== id);
-    // Les rappels liés deviennent de simples rappels
-    this.reminders.filter((r) => r.taskId === id).forEach((r) => this.saveReminder({ ...r, taskId: null, skipIfDone: false }));
+    this.reminders = this.reminders.map((r) => (r.taskId === id ? { ...r, taskId: null, skipIfDone: false } : r));
+    this.saveLocal();
     this.emit();
-    if (isDemo) this.saveLocal();
-    else deleteDoc(doc(this.db!, this.userPath(), "tasks", id));
+    this.call("rappels_delete_task", { p_id: id });
   }
 
   saveReminder(r: Reminder) {
@@ -253,21 +242,25 @@ class Store {
     if (i >= 0) this.reminders[i] = r;
     else this.reminders.push(r);
     this.reminders.sort((a, b) => a.time.localeCompare(b.time));
+    this.saveLocal();
     this.emit();
-    if (isDemo) this.saveLocal();
-    else setDoc(doc(this.db!, this.userPath(), "reminders", r.id), { ...r, uid: this.user });
+    this.call("rappels_save_reminder", { p: r });
   }
 
   deleteReminder(id: string) {
     this.reminders = this.reminders.filter((r) => r.id !== id);
+    this.saveLocal();
     this.emit();
-    if (isDemo) this.saveLocal();
-    else deleteDoc(doc(this.db!, this.userPath(), "reminders", id));
+    this.call("rappels_delete_reminder", { p_id: id });
   }
 
-  async addPushToken(token: string) {
-    if (isDemo || !this.db) return;
-    await setDoc(doc(this.db, this.userPath(), "tokens", token), { token, createdAt: serverTimestamp(), ua: navigator.userAgent });
+  async savePush(sub: PushSubscription) {
+    const j = sub.toJSON();
+    await rpc("rappels_save_push", { p_key: this.key, p_endpoint: j.endpoint, p_p256dh: j.keys!.p256dh, p_auth: j.keys!.auth });
+  }
+
+  async testPush() {
+    await rpc("rappels_test_push", { p_key: this.key });
   }
 }
 

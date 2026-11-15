@@ -1,5 +1,5 @@
-import { getMessaging, getToken, onMessage, isSupported } from "firebase/messaging";
-import { store, isDemo } from "./store";
+// Notifications Web Push (même principe que l'appli GDC)
+import { store } from "./store";
 
 let swReg: ServiceWorkerRegistration | null = null;
 
@@ -18,13 +18,28 @@ export const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator
 export const isStandalone =
   window.matchMedia("(display-mode: standalone)").matches || (navigator as unknown as { standalone?: boolean }).standalone === true;
 
-export type NotifState = "demo" | "ios-install" | "unsupported" | "default" | "granted" | "denied";
+export type NotifState = "ios-install" | "unsupported" | "default" | "granted" | "denied";
 
 export async function notifState(): Promise<NotifState> {
-  if (isDemo) return "demo";
   if (isIOS && !isStandalone) return "ios-install";
-  if (!("Notification" in window) || !(await isSupported())) return "unsupported";
+  if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) return "unsupported";
   return Notification.permission as NotifState;
+}
+
+function b64ToBytes(b64: string) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+async function subscribe() {
+  const reg = swReg || (await navigator.serviceWorker.ready);
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    if (!store.vapidPublic) await store.pull();
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(store.vapidPublic) });
+  }
+  await store.savePush(sub);
 }
 
 /** Doit être appelé suite à un clic (obligatoire sur iPhone) */
@@ -33,24 +48,20 @@ export async function enableNotifications(): Promise<NotifState> {
   if (state !== "default" && state !== "granted") return state;
   const perm = await Notification.requestPermission();
   if (perm !== "granted") return perm as NotifState;
-  await refreshToken();
+  await subscribe();
+  await store.testPush().catch(() => {});
   return "granted";
 }
 
-/** Récupère le jeton du téléphone et l'enregistre (à refaire à chaque ouverture) */
-export async function refreshToken() {
-  if (isDemo || !store.app || Notification.permission !== "granted") return;
-  if (!(await isSupported())) return;
-  const reg = swReg || (await navigator.serviceWorker.ready);
-  const messaging = getMessaging(store.app);
-  const token = await getToken(messaging, { vapidKey: window.FIREBASE_VAPID_KEY || undefined, serviceWorkerRegistration: reg });
-  if (token) await store.addPushToken(token);
+/** À chaque ouverture : on renvoie l'abonnement (il peut changer) */
+export async function refreshSubscription() {
+  if ((await notifState()) !== "granted") return;
+  await subscribe();
 }
 
-/** Quand l'appli est ouverte, la notif n'est pas affichée par le système : on montre un toast */
-export async function listenForeground(onNotif: (title: string, body: string) => void) {
-  if (isDemo || !store.app || !(await isSupported())) return;
-  onMessage(getMessaging(store.app), (payload) => {
-    onNotif(payload.notification?.title || "Rappel", payload.notification?.body || "");
+/** Appli ouverte au moment d'une notif : on montre aussi un toast */
+export function listenForeground(onNotif: (title: string, body: string) => void) {
+  navigator.serviceWorker?.addEventListener("message", (e) => {
+    if (e.data?.type === "push") onNotif(e.data.title, e.data.body);
   });
 }

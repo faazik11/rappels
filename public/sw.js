@@ -1,14 +1,5 @@
-/* Service worker : affiche les notifications envoyées par Firebase + garde l'appli dispo hors ligne */
-importScripts("./firebase-config.js");
-
-if (self.FIREBASE_CONFIG && self.FIREBASE_CONFIG.apiKey) {
-  importScripts("./vendor/firebase-app-compat.js", "./vendor/firebase-messaging-compat.js");
-  firebase.initializeApp(self.FIREBASE_CONFIG);
-  // Les messages avec un bloc "notification" sont affichés automatiquement par le SDK.
-  firebase.messaging();
-}
-
-const CACHE = "rappels-v1";
+/* Service worker : affiche les rappels (Web Push) + garde l'appli dispo hors ligne */
+const CACHE = "rappels-v2";
 
 self.addEventListener("install", () => self.skipWaiting());
 
@@ -40,7 +31,7 @@ self.addEventListener("fetch", (event) => {
         const cached = await caches.match(req, { ignoreSearch: true });
         if (cached) return cached;
         if (req.mode === "navigate") {
-          const shell = await caches.match("./index.html");
+          const shell = await caches.match("./index.html") || await caches.match("./");
           if (shell) return shell;
         }
         throw new Error("hors ligne");
@@ -49,10 +40,32 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
+self.addEventListener("push", (event) => {
+  let msg = {};
+  try {
+    msg = event.data ? event.data.json() : {};
+  } catch {
+    msg = { body: event.data ? event.data.text() : "" };
+  }
+  event.waitUntil(
+    (async () => {
+      await self.registration.showNotification(msg.title || "🔔 Rappel", {
+        body: msg.body || "",
+        icon: "icon-192.png",
+        badge: "icon-192.png",
+        tag: msg.tag,
+        renotify: true,
+        vibrate: [80, 40, 80],
+        data: { url: msg.url || "./" },
+      });
+      const all = await self.clients.matchAll({ type: "window" });
+      all.forEach((c) => c.postMessage({ type: "push", title: msg.title, body: msg.body }));
+    })()
+  );
+});
+
 // Clic sur une notif : ouvre (ou ramène au premier plan) l'appli
 self.addEventListener("notificationclick", (event) => {
-  // Les notifs Firebase sont déjà gérées par le SDK (lien fcmOptions.link)
-  if (event.notification.data && event.notification.data.FCM_MSG) return;
   event.notification.close();
   const target = new URL("./", self.location.href).href;
   event.waitUntil(

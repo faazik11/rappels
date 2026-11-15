@@ -4,13 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "vendor": "node -e \"for (const f of ['firebase-app-compat.js','firebase-messaging-compat.js']) require('fs').copyFileSync('node_modules/firebase/'+f,'public/vendor/'+f)\"",
-    "dev": "npm run vendor && vite",
-    "build": "npm run vendor && tsc --noEmit && vite build",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
-  },
-  "dependencies": {
-    "firebase": "13.3.0"
   },
   "devDependencies": {
     "typescript": "^7.0.2",

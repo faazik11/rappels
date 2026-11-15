@@ -1,7 +1,7 @@
 import "./style.css";
-import { store, isDemo, uid, COLORS, type Task, type Reminder } from "./store";
+import { store, uid, COLORS, type Task, type Reminder } from "./store";
 import { burst, confetti, floatText, ripple, buzz } from "./fx";
-import { registerSW, notifState, enableNotifications, refreshToken, listenForeground, type NotifState } from "./notifications";
+import { registerSW, notifState, enableNotifications, refreshSubscription, listenForeground, type NotifState } from "./notifications";
 
 type Tab = "today" | "reminders" | "tasks";
 let tab: Tab = "today";
@@ -243,8 +243,6 @@ function banner() {
   switch (notif) {
     case "granted":
       return "";
-    case "demo":
-      return `<div class="banner demo"><b>Mode démo</b> : tout reste sur ce téléphone et les notifications sont coupées tant que Firebase n'est pas branché.</div>`;
     case "ios-install":
       return `<div class="banner"><b>Pour recevoir les rappels sur iPhone</b> : touche <span class="kbd">Partager ⎋</span> puis <span class="kbd">Sur l'écran d'accueil</span>, et ouvre l'appli depuis l'icône.</div>`;
     case "unsupported":
@@ -549,7 +547,7 @@ document.addEventListener("visibilitychange", () => {
   notif = await notifState();
   lastSig = "";
   render();
-  if (notif === "granted") refreshToken().catch(console.warn);
+  if (notif === "granted") refreshSubscription().catch(console.warn);
   listenForeground((title, body) => {
     buzz([20, 40, 20]);
     toast(`🔔 <b>${esc(title)}</b><br/>${esc(body)}`);
