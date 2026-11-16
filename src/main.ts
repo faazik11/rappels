@@ -1,6 +1,7 @@
 import "./style.css";
 import { store, uid, PRAYERS, at, addDays, type Reminder } from "./store";
 import { TAHSIN, tahsinItems, tahsinKey, type TahsinSession } from "./tahsin";
+import { icon, inl } from "./icons";
 import { burst, confetti, floatText, ripple, buzz } from "./fx";
 import { registerSW, notifState, enableNotifications, refreshSubscription, listenForeground, type NotifState } from "./notifications";
 
@@ -31,25 +32,14 @@ const fmtDelay = (ms: number) => {
 };
 
 
-// Icônes de la barre du bas (traits, couleur du texte)
-const svg = (d: string) =>
-  `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-const ICONS = {
-  // Soleil levant : la journée en cours
-  today: svg('<path d="M3 18h18"/><path d="M7 18a5 5 0 0 1 10 0"/><path d="M12 4v3"/><path d="M4.9 9.9l2.1 2.1"/><path d="M19.1 9.9L17 12"/><path d="M9 21h6"/>'),
-  // Mosquée : coupole, croissant et minarets
-  times: svg('<path d="M12 2.5c.9.6 1.2 1.6.8 2.4"/><path d="M6.5 13a5.5 5.5 0 0 1 11 0"/><path d="M5 13h14v8H5z"/><path d="M10.5 21v-3a1.5 1.5 0 0 1 3 0v3"/><path d="M2.5 21V11l1-1.5 1 1.5v10"/><path d="M19.5 21V11l1-1.5 1 1.5v10"/><path d="M12 5v2.5"/>'),
-  // Cloche
-  reminders: svg('<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>'),
-};
 
 // ------------------------------------------------------------ Squelette
 app.innerHTML = `
   <main id="view"></main>
   <nav class="tabs">
-    <button data-tab="today"><span class="ti">${ICONS.today}</span><span>Aujourd'hui</span></button>
-    <button data-tab="times"><span class="ti">${ICONS.times}</span><span>Horaires</span></button>
-    <button data-tab="reminders"><span class="ti">${ICONS.reminders}</span><span>Rappels</span></button>
+    <button data-tab="today"><span class="ti">${icon("sunrise")}</span><span>Aujourd'hui</span></button>
+    <button data-tab="times"><span class="ti">${icon("mosque")}</span><span>Horaires</span></button>
+    <button data-tab="reminders"><span class="ti">${icon("bell")}</span><span>Rappels</span></button>
   </nav>
   <div id="sheet-root"></div>
   <div id="toast"></div>
@@ -162,13 +152,13 @@ function renderToday() {
           : `<div class="banner warn">Horaires indisponibles pour l'instant. Vérifie ta connexion, ou choisis ta ville dans l'onglet Horaires.</div>`
       }
       <section class="card prayers-card" id="prayers" style="--c:${PRAYER_COLOR}">
-        <div class="card-head"><h3>🕌 Prières</h3><span class="count"><span class="n" id="pr-n">0</span><span class="of">/5</span></span></div>
+        <div class="card-head"><h3>${inl("mosque")} Prières</h3><span class="count"><span class="n" id="pr-n">0</span><span class="of">/5</span></span></div>
         <div class="prayer-row">
           ${s.prayers
             .map(
               (p) => `
             <button class="prayer" data-p="${p.key}">
-              <span class="bubble"><span class="ck">✓</span></span>
+              <span class="bubble"><span class="ck">${icon("check", 22, 3)}</span></span>
               <span class="pname">${p.name}</span>
               <span class="ptime">${p.time || "--:--"}</span>
             </button>`
@@ -180,7 +170,7 @@ function renderToday() {
         ${tahsinCardHTML("matin")}
         ${tahsinCardHTML("soir")}
       </section>
-      <div class="all-done" id="all-done">🎉 Journée complète&nbsp;!</div>
+      <div class="all-done" id="all-done">${inl("star")} Journée complète&nbsp;!</div>
     `;
     bindBanner();
     view.querySelectorAll<HTMLButtonElement>(".prayer").forEach(bindPrayer);
@@ -193,8 +183,8 @@ function tahsinCardHTML(session: TahsinSession) {
   return `
     <article class="card tahsin-card" data-session="${session}" style="--c:${TAHSIN_COLOR[session]}">
       <div class="card-top">
-        <span class="emoji">${session === "matin" ? "🌅" : "🌙"}</span>
-        <span class="check">✓</span>
+        <span class="emoji">${icon(session === "matin" ? "sunrise" : "moon", 26)}</span>
+        <span class="check">${icon("check", 16, 3)}</span>
       </div>
       <h3 class="name">Tahsin du ${session}</h3>
       <div class="count"><span class="n">0</span><span class="of">%</span></div>
@@ -246,7 +236,7 @@ function updateToday(s = dayState()) {
   const next = view.querySelector("#next");
   if (next) {
     next.innerHTML = s.next
-      ? `🕌 Prochaine prière : <b>${s.next.name} à ${s.next.time}</b> · dans ${fmtDelay(s.next.date.getTime() - Date.now())}`
+      ? `${inl("mosque")} Prochaine prière : <b>${s.next.name} à ${s.next.time}</b> · dans ${fmtDelay(s.next.date.getTime() - Date.now())}`
       : "";
   }
 }
@@ -258,7 +248,7 @@ function bindPrayer(el: HTMLButtonElement) {
     if (!p.open) {
       pulse(el, "shake");
       buzz(8);
-      toast(`⏳ Le temps du ${p.name} n'est pas encore entré (${p.time})`);
+      toast(`${inl("hourglass")} Le temps du ${p.name} n'est pas encore entré (${p.time})`);
       return;
     }
     if (p.done) {
@@ -287,7 +277,7 @@ function bindTahsinCard(session: TahsinSession) {
     const t = session === "matin" ? dayState().tm : dayState().ts;
     if (!t.open) {
       pulse(card, "shake");
-      toast(`🌙 Le tahsin du soir commence au Maghrib (${t.opensAt})`);
+      toast(`${inl("moon")} Le tahsin du soir commence au Maghrib (${t.opensAt})`);
       return;
     }
     if ((e.target as HTMLElement).closest(".validate-all")) {
@@ -354,7 +344,7 @@ function openTahsinSheet(session: TahsinSession) {
             <div class="gauge">${Array.from({ length: i.count }, () => "<i></i>").join("")}</div>
             <span class="pcount"></span>
           </div>
-          <span class="check">✓</span>
+          <span class="check">${icon("check", 16, 3)}</span>
         </article>`
         )
         .join("")}
@@ -423,7 +413,7 @@ function openTahsinSheet(session: TahsinSession) {
           pulse(seg, "pop");
           const r = (seg || p).getBoundingClientRect();
           burst(r.left + r.width / 2, r.top + r.height / 2, color, 14);
-          floatText(ev.clientX, ev.clientY - 10, item.count > 1 ? `${n}/${item.count}` : "✓", color);
+          floatText(ev.clientX, ev.clientY - 10, item.count > 1 ? `${n}/${item.count}` : "+1", color);
           buzz(12);
           update();
           if (n >= item.count) {
@@ -463,10 +453,10 @@ function bindBanner() {
   view.querySelector("#enable-notif")?.addEventListener("click", async () => {
     try {
       notif = await enableNotifications();
-      if (notif === "granted") toast("🔔 Notifications activées&nbsp;!");
+      if (notif === "granted") toast(`${inl("bell")} Notifications activées&nbsp;!`);
     } catch (e) {
       console.error(e);
-      toast("Impossible d'activer les notifications 😕");
+      toast(`${inl("alert")} Impossible d'activer les notifications`);
     }
     lastSig = "";
     render();
@@ -530,7 +520,7 @@ function renderTimes() {
   bindBanner();
   view.querySelector<HTMLSelectElement>("#city")!.addEventListener("change", (e) => {
     store.setCity(Number((e.target as HTMLSelectElement).value));
-    toast("📍 Ville enregistrée");
+    toast(`${inl("pin")} Ville enregistrée`);
   });
   view.querySelectorAll<HTMLInputElement>("[data-n]").forEach((inp) =>
     inp.addEventListener("change", () => {
@@ -592,7 +582,7 @@ function openSheet(title: string, body: string, onMount: (el: HTMLElement, close
     <div class="scrim"></div>
     <div class="sheet" role="dialog" aria-label="${esc(title)}">
       <div class="grab"></div>
-      <div class="sheet-title"><h2>${esc(title)}</h2><button class="close" aria-label="Fermer">✕</button></div>
+      <div class="sheet-title"><h2>${esc(title)}</h2><button class="close" aria-label="Fermer">${icon("close", 18, 2.2)}</button></div>
       ${body}
     </div>`;
   const el = sheetRoot.querySelector<HTMLElement>(".sheet")!;
@@ -646,7 +636,7 @@ function openReminderSheet(rem?: Reminder) {
         if (!r.text) return pulse(el.querySelector("#f-text"), "err");
         store.saveReminder(r);
         close();
-        toast(`🔔 Rappel à <b>${r.time}</b> enregistré`);
+        toast(`${inl("bell")} Rappel à <b>${r.time}</b> enregistré`);
       });
       el.querySelector("#f-del")?.addEventListener("click", () => {
         store.deleteReminder(r.id);

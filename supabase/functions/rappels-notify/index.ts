@@ -80,10 +80,10 @@ async function prayerTick(time: string, day: string) {
       for (const d of list) {
         const notif = (d.settings.notif ?? {}) as Record<string, boolean>;
         if (notif[p.key] !== false) {
-          sent += await send([d.key], () => ({ title: `🕌 ${p.name} · ${time}`, body: `C'est l'heure de la prière du ${p.name}.`, tag: `prayer-${p.key}` }));
+          sent += await send([d.key], () => ({ title: `${p.name} · ${time}`, body: `C'est l'heure de la prière du ${p.name}.`, tag: `prayer-${p.key}` }));
         }
         if ("tahsin" in p && notif.tahsin !== false) {
-          sent += await send([d.key], () => ({ title: `📿 Tahsin du ${p.tahsin}`, body: `Pense à réciter ton tahsin du ${p.tahsin}.`, tag: `tahsin-${p.tahsin}` }));
+          sent += await send([d.key], () => ({ title: `Tahsin du ${p.tahsin}`, body: `Pense à réciter ton tahsin du ${p.tahsin}.`, tag: `tahsin-${p.tahsin}` }));
         }
       }
     }
@@ -117,7 +117,7 @@ async function customTick(time: string, weekday: number, day: string) {
 
   let sent = 0;
   for (const r of due) {
-    let msg: Msg = { title: "🔔 Rappel", body: r.text, tag: r.id };
+    let msg: Msg = { title: "Rappel", body: r.text, tag: r.id };
     if (r.task_id) {
       const t = taskOf(r.device, r.task_id);
       if (t) {
@@ -143,7 +143,7 @@ Deno.serve(async (req) => {
   const payload = await req.json().catch(() => ({}));
   let result: unknown;
   if (payload.type === "test" && payload.device) {
-    result = { sent: await send([payload.device], () => ({ title: "🔔 Notifications activées", body: "Tes rappels arriveront pile à l'heure !", tag: "test" })) };
+    result = { sent: await send([payload.device], () => ({ title: "Notifications activées", body: "Tes rappels arriveront pile à l'heure !", tag: "test" })) };
   } else {
     result = await tick();
   }

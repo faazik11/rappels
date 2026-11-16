@@ -447,3 +447,14 @@ select option { background: var(--bg2); }
 }
 .note { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 12px 4px; }
 .err { border-color: #ff7a59 !important; animation: shake 0.35s; }
+
+/* Icônes */
+.i-inl { display: inline-grid; place-items: center; vertical-align: -3px; margin-right: 2px; }
+.card-head h3 .i-inl { color: var(--c); vertical-align: -2px; }
+.card-head h3 .i-inl svg { width: 22px; height: 22px; }
+.next .i-inl { color: #5ef2b0; }
+.all-done .i-inl svg { width: 22px; height: 22px; }
+.emoji { color: var(--c); }
+.sheet .close { display: grid; place-items: center; }
+.check svg, .prayer .ck svg { display: block; }
+.prayer .ck { display: grid; place-items: center; }
