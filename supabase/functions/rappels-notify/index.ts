@@ -91,10 +91,48 @@ async function prayerTick(time: string, day: string) {
   return sent;
 }
 
+
+/** Notifs des objectifs « paroles à réciter » (à une heure ou après une prière), sauf si déjà fini */
+async function goalTick(time: string, weekday: number, day: string) {
+  const { data: goals } = await db.from("rappels_goals").select("device, id, title, target, freq, days, start_mode, start_time, start_prayer").eq("kind", "dhikr").eq("notify", true);
+  if (!goals?.length) return 0;
+  const devices = [...new Set(goals.map((g) => g.device))];
+  const { data: devs } = await db.from("rappels_devices").select("key, city_id").in("key", devices);
+  const cityOf = new Map((devs ?? []).map((d) => [d.key, d.city_id]));
+  const timesCache = new Map<number, Record<string, string> | null>();
+  const timesFor = async (city: number) => {
+    if (!timesCache.has(city)) timesCache.set(city, (await db.rpc("rappels_day_times", { p_city: city, p_day: day })).data);
+    return timesCache.get(city);
+  };
+  let sent = 0;
+  for (const g of goals) {
+    if (g.freq === "daily" && !(g.days as number[]).includes(weekday)) continue;
+    let due = false;
+    if (g.start_mode === "time") due = g.start_time === time;
+    else if (g.start_mode === "prayer" && g.start_prayer) {
+      const t = await timesFor(cityOf.get(g.device));
+      due = !!t && t[g.start_prayer] === time;
+    }
+    if (!due) continue;
+    const pday = g.freq === "total" ? "2000-01-01" : day;
+    const { data: prog } = await db.from("rappels_progress").select("n").eq("device", g.device).eq("day", pday).eq("task_id", "g:" + g.id).maybeSingle();
+    const n = prog?.n ?? 0;
+    if (n >= g.target) continue;
+    const title = g.title.length > 60 ? g.title.slice(0, 57) + "…" : g.title;
+    sent += await send([g.device], () => ({
+      title: "Parole à réciter",
+      body: `${title} · ${n}/${g.target}${g.freq === "daily" ? " aujourd'hui" : ""}`,
+      tag: "goal-" + g.id,
+    }));
+  }
+  return sent;
+}
+
 async function tick() {
   const { time, weekday, day } = paris(new Date());
   const prayersSent = await prayerTick(time, day).catch((e) => (console.error("prières", String(e)), 0));
-  return { ...(await customTick(time, weekday, day)), prayersSent };
+  const goalsSent = await goalTick(time, weekday, day).catch((e) => (console.error("objectifs", String(e)), 0));
+  return { ...(await customTick(time, weekday, day)), prayersSent, goalsSent };
 }
 
 async function customTick(time: string, weekday: number, day: string) {

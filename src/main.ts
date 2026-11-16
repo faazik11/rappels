@@ -1,11 +1,11 @@
 import "./style.css";
-import { store, uid, PRAYERS, at, addDays, type Reminder } from "./store";
+import { store, uid, PRAYERS, at, addDays, TOTAL_DAY, type Reminder, type Goal, type PrayerKey } from "./store";
 import { TAHSIN, TAHSIN_IMG, tahsinItems, tahsinKey, type TahsinSession } from "./tahsin";
 import { icon, inl } from "./icons";
 import { burst, confetti, floatText, ripple, buzz } from "./fx";
 import { registerSW, notifState, enableNotifications, refreshSubscription, listenForeground, type NotifState } from "./notifications";
 
-type Tab = "today" | "times" | "reminders";
+type Tab = "today" | "goals" | "times" | "reminders";
 let tab: Tab = "today";
 let notif: NotifState = "default";
 
@@ -38,6 +38,7 @@ app.innerHTML = `
   <main id="view"></main>
   <nav class="tabs" aria-label="Navigation principale">
     <button data-tab="today"><span class="ti">${icon("sunrise")}</span><span>Aujourd'hui</span></button>
+    <button data-tab="goals"><span class="ti">${icon("target")}</span><span>Objectifs</span></button>
     <button data-tab="times"><span class="ti">${icon("mosque")}</span><span>Horaires</span></button>
     <button data-tab="reminders"><span class="ti">${icon("bell")}</span><span>Rappels</span></button>
   </nav>
@@ -121,6 +122,7 @@ function render() {
     return;
   }
   if (tab === "today") renderToday();
+  else if (tab === "goals") renderGoals();
   else if (tab === "times") renderTimes();
   else renderReminders();
 }
@@ -132,7 +134,7 @@ function greeting() {
 
 function renderToday() {
   const s = dayState();
-  const sig = `today|${s.day}|${notif}|${!!s.times}`;
+  const sig = `today|${s.day}|${notif}|${!!s.times}|${goalsSig()}`;
   if (sig !== lastSig) {
     lastSig = sig;
     const [y, m, d] = s.day.split("-").map(Number);
@@ -180,11 +182,13 @@ function renderToday() {
         ${tahsinCardHTML("matin")}
         ${tahsinCardHTML("soir")}
       </section>
+      <section id="goals-today">${goalsTodayHTML(s)}</section>
       <div class="all-done" id="all-done">${inl("star")} Journée complète&nbsp;!</div>
     `;
     bindBanner();
     view.querySelectorAll<HTMLButtonElement>(".prayer").forEach(bindPrayer);
     (["matin", "soir"] as TahsinSession[]).forEach(bindTahsinCard);
+    bindGoalsToday();
   }
   updateToday(s);
 }
@@ -237,6 +241,8 @@ function updateToday(s = dayState()) {
         : `${t.done}/${t.total} récitations`;
     (card.querySelector(".validate-all") as HTMLElement).style.display = t.open && t.pct < 1 ? "" : "none";
   }
+
+  updateGoalsToday(s);
 
   // Anneau + prochaine prière
   const fg = view.querySelector<SVGCircleElement>("#ring-fg");
@@ -467,6 +473,358 @@ function openTahsinSheet(session: TahsinSession) {
       });
     },
     () => (sheetUpdate = null)
+  );
+}
+
+// ------------------------------------------------------------ Objectifs (rattrapage + paroles)
+const GOAL_COLOR = "#2c6e63";
+const isoOf = (day: string) => {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(y, m - 1, d).getDay() || 7;
+};
+const prayerName = (k: PrayerKey | null) => PRAYERS.find((p) => p.key === k)?.name || "";
+const goalKey = (g: Goal) => "g:" + g.id;
+const goalDay = (g: Goal, s = dayState()) => (g.freq === "total" ? TOTAL_DAY : s.day);
+const goalValue = (g: Goal, s = dayState()) => store.value(goalDay(g, s), goalKey(g));
+const fmtN = (n: number) => n.toLocaleString("fr-FR");
+
+function goalsSig() {
+  return store.goals.map((g) => [g.id, g.kind, g.prayer, g.title, g.target, g.freq, g.days.join(""), g.startMode, g.startTime, g.startPrayer].join(",")).join("|");
+}
+
+/** Visible aujourd'hui ? (objectif quotidien limité à certains jours) */
+function goalToday(g: Goal, s = dayState()) {
+  return g.kind === "qada" || g.freq === "total" || g.days.includes(isoOf(s.day));
+}
+
+/** Ouvert maintenant ? + texte « à partir de… » */
+function goalOpen(g: Goal, s = dayState()): { open: boolean; label: string } {
+  if (g.startMode === "time" && g.startTime) {
+    return { open: new Date() >= at(s.day, g.startTime), label: `À partir de ${g.startTime}` };
+  }
+  if (g.startMode === "prayer" && g.startPrayer) {
+    const t = s.times?.[g.startPrayer];
+    return { open: !!t && new Date() >= at(s.day, t), label: `Après le ${prayerName(g.startPrayer)}${t ? ` (${t})` : ""}` };
+  }
+  return { open: true, label: "" };
+}
+
+function goalsTodayHTML(s: ReturnType<typeof dayState>) {
+  const qada = store.goals.filter((g) => g.kind === "qada");
+  const dhikr = store.goals.filter((g) => g.kind === "dhikr" && goalToday(g, s));
+  if (!qada.length && !dhikr.length) return "";
+  return `
+    <h2 class="section-title">Mes objectifs</h2>
+    ${
+      qada.length
+        ? `<section class="card qada-card" style="--c:${PRAYER_COLOR}">
+            <div class="card-head"><h3>${inl("mosque")} Rattrapage</h3><span class="qada-left" id="qada-left"></span></div>
+            ${qada
+              .map(
+                (g) => `
+              <div class="qrow" data-id="${g.id}">
+                <div class="qrow-top"><b>${prayerName(g.prayer)}</b><span class="qcount"></span></div>
+                <div class="bar"><b></b></div>
+                <div class="qrow-actions">
+                  <button class="minus" aria-label="Retirer une prière du ${prayerName(g.prayer)}"><span aria-hidden="true">−</span></button>
+                  <button class="qplus" aria-label="Valider une prière du ${prayerName(g.prayer)} rattrapée">${icon("plus", 20, 2.4)} Rattrapée</button>
+                </div>
+              </div>`
+              )
+              .join("")}
+          </section>`
+        : ""
+    }
+    ${dhikr
+      .map(
+        (g) => `
+      <article class="card dhikr-card" data-id="${g.id}" style="--c:${GOAL_COLOR}">
+        <div class="card-top">
+          <span class="emoji">${icon("beads", 24)}</span>
+          <button class="minus" aria-label="Retirer une récitation"><span aria-hidden="true">−</span></button>
+        </div>
+        <p class="dhikr-text" dir="auto">${esc(g.title)}</p>
+        <button class="stretch dhikr-hit" aria-label="${esc(g.title)}"></button>
+        <div class="count"><span class="n">0</span><span class="of">/${fmtN(g.target)}</span></div>
+        ${g.target <= 12 ? `<div class="gauge">${Array.from({ length: g.target }, () => "<i></i>").join("")}</div>` : `<div class="bar"><b></b></div>`}
+        <p class="hint"></p>
+        <span class="check">${icon("check", 16, 3)}</span>
+      </article>`
+      )
+      .join("")}`;
+}
+
+function updateGoalsToday(s = dayState()) {
+  let left = 0;
+  view.querySelectorAll<HTMLElement>(".qrow").forEach((row) => {
+    const g = store.goals.find((x) => x.id === row.dataset.id);
+    if (!g) return;
+    const n = Math.min(goalValue(g, s), g.target);
+    left += g.target - n;
+    row.querySelector(".qcount")!.textContent = `${fmtN(n)} / ${fmtN(g.target)}`;
+    (row.querySelector(".bar b") as HTMLElement).style.width = (n / g.target) * 100 + "%";
+    row.classList.toggle("done", n >= g.target);
+  });
+  const ql = view.querySelector("#qada-left");
+  if (ql) ql.textContent = left ? `encore ${fmtN(left)}` : "terminé";
+  view.querySelector(".qada-card")?.classList.toggle("done", !!ql && left === 0);
+
+  view.querySelectorAll<HTMLElement>(".dhikr-card").forEach((card) => {
+    const g = store.goals.find((x) => x.id === card.dataset.id);
+    if (!g) return;
+    const n = Math.min(goalValue(g, s), g.target);
+    const o = goalOpen(g, s);
+    card.querySelector(".n")!.textContent = fmtN(n);
+    card.querySelectorAll(".gauge i").forEach((seg, i) => seg.classList.toggle("on", i < n));
+    const bar = card.querySelector<HTMLElement>(".bar b");
+    if (bar) bar.style.width = (n / g.target) * 100 + "%";
+    card.classList.toggle("done", n >= g.target);
+    card.classList.toggle("locked", !o.open);
+    const what = g.freq === "daily" ? "aujourd'hui" : "au total";
+    card.querySelector(".hint")!.textContent = !o.open ? o.label : n >= g.target ? `Objectif atteint ${what}` : `Encore ${fmtN(g.target - n)} ${what}`;
+    card.querySelector(".dhikr-hit")!.setAttribute("aria-label", `${g.title} : ${n} sur ${g.target} ${what}`);
+  });
+}
+
+function bindGoalsToday() {
+  view.querySelectorAll<HTMLElement>(".qrow").forEach((row) => {
+    const g = () => store.goals.find((x) => x.id === row.dataset.id)!;
+    row.querySelector(".qplus")!.addEventListener("click", (e) => {
+      const goal = g();
+      const before = goalValue(goal);
+      if (before >= goal.target) return pulse(row, "shake");
+      const n = store.bump(goalDay(goal), goalKey(goal), 1, goal.target);
+      const btn = e.currentTarget as HTMLElement;
+      const r = btn.getBoundingClientRect();
+      burst(r.left + r.width / 2, r.top + r.height / 2, PRAYER_COLOR, 14);
+      floatText((e as MouseEvent).clientX, (e as MouseEvent).clientY - 12, "+1", PRAYER_COLOR);
+      pulse(btn, "squish");
+      buzz(12);
+      if (n >= goal.target) {
+        buzz([30, 60, 30, 60, 80]);
+        setTimeout(() => confetti([PRAYER_COLOR, ...FX_COLORS]), 120);
+      }
+    });
+    row.querySelector(".minus")!.addEventListener("click", () => {
+      const goal = g();
+      store.bump(goalDay(goal), goalKey(goal), -1, goal.target);
+      pulse(row, "shake");
+      buzz(8);
+    });
+  });
+
+  view.querySelectorAll<HTMLElement>(".dhikr-card").forEach((card) => {
+    const g = () => store.goals.find((x) => x.id === card.dataset.id)!;
+    card.querySelector(".minus")!.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const goal = g();
+      store.bump(goalDay(goal), goalKey(goal), -1, goal.target);
+      pulse(card, "shake");
+      buzz(8);
+    });
+    card.addEventListener("click", (e) => {
+      const goal = g();
+      const o = goalOpen(goal);
+      if (!o.open) {
+        pulse(card, "shake");
+        return toast(`${inl("hourglass")} ${o.label}`);
+      }
+      const before = goalValue(goal);
+      if (before >= goal.target) return pulse(card, "shake");
+      const n = store.bump(goalDay(goal), goalKey(goal), 1, goal.target);
+      const ev = e as MouseEvent;
+      ripple(card, ev.clientX, ev.clientY);
+      const seg = card.querySelectorAll<HTMLElement>(".gauge i")[before];
+      pulse(seg, "pop");
+      pulse(card.querySelector(".n"), "bump");
+      const r = (seg || card.querySelector(".count")!).getBoundingClientRect();
+      burst(r.left + r.width / 2, r.top + r.height / 2, GOAL_COLOR, 10);
+      floatText(ev.clientX, ev.clientY - 10, "+1", GOAL_COLOR);
+      buzz(10);
+      if (n >= goal.target) {
+        buzz([30, 60, 30, 60, 80]);
+        setTimeout(() => confetti([GOAL_COLOR, ...FX_COLORS]), 120);
+      }
+    });
+  });
+}
+
+// ---------- Onglet Objectifs
+function renderGoals() {
+  lastSig = "";
+  const s = dayState();
+  const qada = store.goals.filter((g) => g.kind === "qada");
+  const dhikr = store.goals.filter((g) => g.kind === "dhikr");
+  const dhikrMeta = (g: Goal) => {
+    const parts = [g.freq === "daily" ? (g.days.length === 7 ? "Chaque jour" : "Certains jours") : "Objectif total"];
+    const o = goalOpen(g, s);
+    if (o.label) parts.push(o.label.toLowerCase());
+    if (g.notify && g.startMode !== "any") parts.push("notification");
+    return parts.join(" · ");
+  };
+  view.innerHTML = `
+    <header class="page-head"><h1>Objectifs</h1><p>Tes prières à rattraper et les paroles que tu veux réciter. Leur progression s'affiche sur l'écran Aujourd'hui.</p></header>
+    <h2 class="section-title">Rattrapage des prières</h2>
+    <section class="list">
+      ${
+        qada
+          .map((g) => {
+            const n = Math.min(goalValue(g, s), g.target);
+            return `<article class="rem goal-row" data-id="${g.id}" style="--c:${PRAYER_COLOR}">
+              <div class="rem-body"><p class="rem-text">${prayerName(g.prayer)}</p><p class="sub">${fmtN(n)} / ${fmtN(g.target)} rattrapées</p>
+              <div class="bar"><b style="width:${(n / g.target) * 100}%"></b></div></div>
+            </article>`;
+          })
+          .join("") || `<p class="empty">Aucune prière à rattraper.</p>`
+      }
+    </section>
+    <button class="btn wide" id="add-qada">${icon("plus", 18, 2.4)} Prière à rattraper</button>
+    <h2 class="section-title">Paroles à réciter</h2>
+    <section class="list">
+      ${
+        dhikr
+          .map((g) => {
+            const n = Math.min(goalValue(g, s), g.target);
+            return `<article class="rem goal-row" data-id="${g.id}" style="--c:${GOAL_COLOR}">
+              <div class="rem-body"><p class="rem-text" dir="auto">${esc(g.title)}</p><p class="sub">${fmtN(n)} / ${fmtN(g.target)} · ${dhikrMeta(g)}</p></div>
+            </article>`;
+          })
+          .join("") || `<p class="empty">Aucune parole pour l'instant.</p>`
+      }
+    </section>
+    <button class="btn wide" id="add-dhikr">${icon("plus", 18, 2.4)} Parole à réciter</button>
+  `;
+  view.querySelectorAll<HTMLElement>(".goal-row").forEach((el) =>
+    el.addEventListener("click", () => {
+      const g = store.goals.find((x) => x.id === el.dataset.id)!;
+      g.kind === "qada" ? openQadaSheet(g) : openDhikrSheet(g);
+    })
+  );
+  view.querySelector("#add-qada")!.addEventListener("click", () => openQadaSheet());
+  view.querySelector("#add-dhikr")!.addEventListener("click", () => openDhikrSheet());
+}
+
+function newGoal(kind: Goal["kind"]): Goal {
+  return {
+    id: uid(), kind, prayer: kind === "qada" ? "fajr" : null, title: "", target: kind === "qada" ? 50 : 100, freq: kind === "qada" ? "total" : "daily",
+    days: [1, 2, 3, 4, 5, 6, 7], startMode: "any", startTime: null, startPrayer: null, notify: false, order: store.goals.length,
+  };
+}
+
+function deleteGoalWithUndo(g: Goal, close: () => void) {
+  const day = goalDay(g);
+  const done = store.value(day, goalKey(g));
+  store.deleteGoal(g.id);
+  close();
+  toast(`Objectif supprimé`, {
+    label: "Annuler",
+    run: () => {
+      store.saveGoal(g);
+      if (done) store.setValues(day, { [goalKey(g)]: done });
+    },
+  });
+}
+
+function segHTML(name: string, options: [string, string][], value: string) {
+  return `<div class="seg-switch full" data-seg="${name}">${options.map(([v, l]) => `<button type="button" data-v="${v}" class="${v === value ? "on" : ""}">${l}</button>`).join("")}</div>`;
+}
+function bindSeg(el: HTMLElement, name: string, onChange: (v: string) => void) {
+  el.querySelectorAll<HTMLButtonElement>(`[data-seg="${name}"] button`).forEach((b) =>
+    b.addEventListener("click", () => {
+      el.querySelectorAll(`[data-seg="${name}"] button`).forEach((x) => x.classList.toggle("on", x === b));
+      onChange(b.dataset.v!);
+    })
+  );
+}
+const PRAYER_OPTS = PRAYERS.map((p) => [p.key, p.name] as [string, string]);
+
+function openQadaSheet(goal?: Goal) {
+  const g: Goal = goal ? { ...goal } : newGoal("qada");
+  const done = goal ? goalValue(goal) : 0;
+  openSheet(
+    goal ? "Modifier le rattrapage" : "Prière à rattraper",
+    `
+    <div class="field"><span>Prière</span>${segHTML("prayer", PRAYER_OPTS, g.prayer || "fajr")}</div>
+    <label class="field"><span>Nombre à rattraper</span><input id="f-target" type="number" inputmode="numeric" min="1" max="100000" value="${g.target}"/></label>
+    ${goal ? `<label class="field"><span>Déjà rattrapées</span><input id="f-done" type="number" inputmode="numeric" min="0" value="${done}"/><small>Pour corriger le compteur si besoin.</small></label>` : ""}
+    <div class="sheet-actions">
+      ${goal ? `<button class="btn ghost danger" id="f-del">Supprimer</button>` : ""}
+      <button class="btn" id="f-save">Enregistrer</button>
+    </div>`,
+    (el, close) => {
+      bindSeg(el, "prayer", (v) => (g.prayer = v as PrayerKey));
+      el.querySelector("#f-save")!.addEventListener("click", () => {
+        const t = Number(el.querySelector<HTMLInputElement>("#f-target")!.value);
+        if (!Number.isFinite(t) || t < 1) return pulse(el.querySelector("#f-target"), "err");
+        g.target = Math.min(100000, Math.round(t));
+        store.saveGoal(g);
+        const doneInput = el.querySelector<HTMLInputElement>("#f-done");
+        if (doneInput) store.setValues(TOTAL_DAY, { [goalKey(g)]: Math.max(0, Math.min(g.target, Math.round(Number(doneInput.value) || 0))) });
+        close();
+        toast(`${inl("check")} ${prayerName(g.prayer)} : ${fmtN(g.target)} à rattraper`);
+      });
+      el.querySelector("#f-del")?.addEventListener("click", () => deleteGoalWithUndo(goal!, close));
+    }
+  );
+}
+
+function openDhikrSheet(goal?: Goal) {
+  const g: Goal = goal ? { ...goal, days: [...goal.days] } : newGoal("dhikr");
+  openSheet(
+    goal ? "Modifier la parole" : "Parole à réciter",
+    `
+    <label class="field"><span>Parole</span><textarea id="f-title" rows="3" dir="auto" maxlength="300" placeholder="Écris la parole que tu veux réciter">${esc(g.title)}</textarea></label>
+    <label class="field"><span>Nombre de fois</span><input id="f-target" type="number" inputmode="numeric" min="1" max="100000" value="${g.target}"/></label>
+    <div class="field"><span>Rythme</span>${segHTML("freq", [["daily", "Chaque jour"], ["total", "Objectif total"]], g.freq)}
+      <small id="freq-help"></small></div>
+    <div class="field" id="days-field"><span>Jours</span>
+      <div class="day-pick">${DAYS.map((d, i) => `<button type="button" data-d="${i + 1}" class="${g.days.includes(i + 1) ? "on" : ""}">${d}</button>`).join("")}</div>
+    </div>
+    <div class="field"><span>À partir de quand</span>${segHTML("start", [["any", "Toute la journée"], ["time", "Une heure"], ["prayer", "Une prière"]], g.startMode)}
+      <input id="f-time" type="time" value="${g.startTime || "21:00"}" class="time-input start-extra" data-for="time"/>
+      <div class="start-extra" data-for="prayer">${segHTML("sprayer", PRAYER_OPTS, g.startPrayer || "fajr")}</div>
+    </div>
+    <label class="check-row" id="notify-row"><input type="checkbox" id="f-notify" ${g.notify ? "checked" : ""}/> M'envoyer une notification à ce moment-là</label>
+    <div class="sheet-actions">
+      ${goal ? `<button class="btn ghost danger" id="f-del">Supprimer</button>` : ""}
+      <button class="btn" id="f-save">Enregistrer</button>
+    </div>`,
+    (el, close) => {
+      const sync = () => {
+        (el.querySelector("#days-field") as HTMLElement).style.display = g.freq === "daily" ? "" : "none";
+        el.querySelector("#freq-help")!.textContent =
+          g.freq === "daily" ? "Le compteur repart à zéro chaque jour (au Fajr)." : "Le compteur s'additionne de jour en jour jusqu'à l'objectif.";
+        el.querySelectorAll<HTMLElement>(".start-extra").forEach((x) => (x.style.display = x.dataset.for === g.startMode ? "" : "none"));
+        (el.querySelector("#notify-row") as HTMLElement).style.display = g.startMode === "any" ? "none" : "";
+      };
+      sync();
+      bindSeg(el, "freq", (v) => ((g.freq = v as Goal["freq"]), sync()));
+      bindSeg(el, "start", (v) => ((g.startMode = v as Goal["startMode"]), sync()));
+      bindSeg(el, "sprayer", (v) => (g.startPrayer = v as PrayerKey));
+      el.querySelectorAll<HTMLButtonElement>("[data-d]").forEach((b) =>
+        b.addEventListener("click", () => {
+          const d = Number(b.dataset.d);
+          g.days = g.days.includes(d) ? g.days.filter((x) => x !== d) : [...g.days, d].sort();
+          b.classList.toggle("on", g.days.includes(d));
+        })
+      );
+      el.querySelector("#f-save")!.addEventListener("click", () => {
+        g.title = el.querySelector<HTMLTextAreaElement>("#f-title")!.value.trim();
+        if (!g.title) return pulse(el.querySelector("#f-title"), "err");
+        const t = Number(el.querySelector<HTMLInputElement>("#f-target")!.value);
+        if (!Number.isFinite(t) || t < 1) return pulse(el.querySelector("#f-target"), "err");
+        g.target = Math.min(100000, Math.round(t));
+        if (g.freq === "daily" && !g.days.length) return toast("Choisis au moins un jour");
+        g.startTime = g.startMode === "time" ? el.querySelector<HTMLInputElement>("#f-time")!.value || "21:00" : null;
+        if (g.startMode === "prayer") g.startPrayer = g.startPrayer || "fajr";
+        else g.startPrayer = null;
+        g.notify = g.startMode !== "any" && el.querySelector<HTMLInputElement>("#f-notify")!.checked;
+        store.saveGoal(g);
+        close();
+        toast(`${inl("check")} Parole enregistrée`);
+      });
+      el.querySelector("#f-del")?.addEventListener("click", () => deleteGoalWithUndo(goal!, close));
+    }
   );
 }
 
@@ -739,6 +1097,7 @@ setTimeout(fixTabBar, 600);
 store.subscribe(() => {
   if (!store.ready) return;
   if (tab === "today") renderToday();
+  else if (tab === "goals") renderGoals();
   else if (tab === "times") renderTimes();
   else renderReminders();
   sheetUpdate?.();

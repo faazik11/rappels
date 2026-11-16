@@ -30,6 +30,24 @@ export interface Settings {
   tahsinView?: "both" | "ph" | "ar";
 }
 
+export interface Goal {
+  id: string;
+  kind: "qada" | "dhikr";
+  prayer: PrayerKey | null; // rattrapage
+  title: string; // parole (dhikr)
+  target: number;
+  freq: "total" | "daily";
+  days: number[];
+  startMode: "any" | "time" | "prayer";
+  startTime: string | null;
+  startPrayer: PrayerKey | null;
+  notify: boolean;
+  order: number;
+}
+
+/** Jour fixe où l'on range la progression des objectifs cumulés (jamais remis à zéro) */
+export const TOTAL_DAY = "2000-01-01";
+
 export interface City {
   id: number;
   name: string;
@@ -115,6 +133,7 @@ interface Saved {
   settings: Settings;
   times: (DayTimes | null)[];
   reminders: Reminder[];
+  goals: Goal[];
   progress: Record<string, Record<string, number>>;
   vapidPublic: string;
 }
@@ -126,6 +145,7 @@ class Store {
   settings: Settings = {};
   times: (DayTimes | null)[] = [null, null, null]; // hier, aujourd'hui, demain
   reminders: Reminder[] = [];
+  goals: Goal[] = [];
   progress: Record<string, Record<string, number>> = {};
   cities: City[] = readJSON(LS.cities, []);
   vapidPublic = "";
@@ -166,6 +186,7 @@ class Store {
     this.settings = d.settings || {};
     this.times = d.times;
     this.reminders = d.reminders;
+    this.goals = d.goals || [];
     // On garde les validations locales pas encore envoyées
     const pending = readJSON<QueuedCall[]>(LS.queue, []);
     this.progress = pending.length ? { ...d.progress, ...this.progress } : d.progress || {};
@@ -191,6 +212,7 @@ class Store {
       settings: this.settings,
       times: this.times,
       reminders: this.reminders,
+      goals: this.goals,
       progress: this.progress,
       vapidPublic: this.vapidPublic,
     };
@@ -298,6 +320,23 @@ class Store {
     this.save();
     this.emit();
     this.call("rappels_delete_reminder", { p_id: id });
+  }
+
+  // ---------- Objectifs ----------
+  saveGoal(g: Goal) {
+    const i = this.goals.findIndex((x) => x.id === g.id);
+    if (i >= 0) this.goals[i] = g;
+    else this.goals.push(g);
+    this.save();
+    this.emit();
+    this.call("rappels_save_goal", { p: g });
+  }
+
+  deleteGoal(id: string) {
+    this.goals = this.goals.filter((g) => g.id !== id);
+    this.save();
+    this.emit();
+    this.call("rappels_delete_goal", { p_id: id });
   }
 
   // ---------- Notifications ----------

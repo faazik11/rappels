@@ -1,0 +1,5 @@
+-- Objectifs personnels : rattrapage de prières (qada) et paroles à réciter (dhikr).
+-- Appliquée sur le projet « Appli GDC » le 16/11/2026 (voir la version complète dans l'historique Supabase).
+-- Table rappels_goals + fonctions rappels_save_goal / rappels_delete_goal ;
+-- compteurs portés à 100 000 dans rappels_bump / rappels_set_progress ;
+-- rappels_load renvoie aussi « goals » et la progression des objectifs cumulés (jour fixe 2000-01-01).
