@@ -634,6 +634,11 @@ button:focus-visible, .switch input:focus-visible + span { outline-color: var(--
    Le fond « hors page » est vert (il n'apparaît que sous la barre / derrière la barre d'état),
    et la barre se prolonge vers le bas au cas où l'écran serait plus haut que la page. */
 html { background: var(--green-deep); }
-.tabs::after {
-  content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 200px; background: var(--green-deep);
+
+/* Appli installée sur l'iPhone (écran d'accueil) : avec la barre d'état transparente, iOS place le
+   « bas » des éléments fixes ~1 barre d'état trop haut. On cale donc la barre et la page sur la
+   vraie hauteur de l'écran (100vh = écran entier dans ce mode). */
+@media (display-mode: standalone) {
+  .tabs { bottom: auto; top: 100vh; transform: translateY(-100%); }
+  #view { bottom: auto; height: 100vh; }
 }

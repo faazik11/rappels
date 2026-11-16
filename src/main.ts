@@ -718,6 +718,23 @@ function openReminderSheet(rem?: Reminder) {
   );
 }
 
+// ------------------------------------------------------------ iPhone : barre du bas collée au vrai bas de l'écran
+// En appli installée, on vérifie où tombe le bas de la barre et on corrige l'écart éventuel avec le bas de l'écran.
+function fixTabBar() {
+  const standalone = matchMedia("(display-mode: standalone)").matches || (navigator as unknown as { standalone?: boolean }).standalone === true;
+  if (!standalone) return;
+  const bar = document.querySelector<HTMLElement>(".tabs")!;
+  bar.style.marginTop = "";
+  const portrait = innerHeight >= innerWidth;
+  const screenH = portrait ? Math.max(screen.height, screen.width) : Math.min(screen.height, screen.width);
+  const gap = Math.round(screenH - bar.getBoundingClientRect().bottom);
+  if (Math.abs(gap) > 1 && Math.abs(gap) < 160) bar.style.marginTop = gap + "px";
+}
+addEventListener("resize", () => setTimeout(fixTabBar, 50));
+addEventListener("orientationchange", () => setTimeout(fixTabBar, 300));
+setTimeout(fixTabBar, 0);
+setTimeout(fixTabBar, 600);
+
 // ------------------------------------------------------------ Démarrage
 store.subscribe(() => {
   if (!store.ready) return;
