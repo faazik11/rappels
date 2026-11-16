@@ -497,3 +497,135 @@ button, label { touch-action: manipulation; }
 }
 .tahsin-card .name { white-space: normal; }
 .btn { min-height: 44px; }
+
+/* =================== Thème « Zellige » : marbre blanc, arabesques, vert foncé =================== */
+:root {
+  --bg: #f6f3ec;
+  --bg2: #fbf9f4;
+  --surface: #fffdf8;
+  --surface2: #f0ebe0;
+  --line: #ddd4c2;
+  --text: #15291f;
+  --muted: #5a675f;
+  --accent: #a8873a;
+  --green: #1f5c45;
+  --green-deep: #0f3b2c;
+  --gold-soft: #e6d3a3;
+  color-scheme: light;
+}
+html { background: var(--bg); }
+body::before {
+  background-color: var(--bg);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='1600' viewBox='0 0 900 1600'%3E%3Cg fill='none' stroke='%239c9586' stroke-linecap='round'%3E%3Cpath d='M-40 180 C160 120 260 300 470 230 S760 140 940 260' stroke-opacity='.16' stroke-width='2'/%3E%3Cpath d='M-40 200 C180 160 280 320 500 260' stroke-opacity='.08' stroke-width='1'/%3E%3Cpath d='M-40 760 C120 700 300 880 520 780 S800 700 940 820' stroke-opacity='.13' stroke-width='1.6'/%3E%3Cpath d='M300 790 C360 860 420 900 520 960' stroke-opacity='.08' stroke-width='1'/%3E%3Cpath d='M-40 1320 C200 1260 340 1420 600 1340 S820 1300 940 1380' stroke-opacity='.12' stroke-width='1.8'/%3E%3C/g%3E%3C/svg%3E"), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Cg fill='none' stroke='%231f5c45' stroke-opacity='.11' stroke-width='1'%3E%3Crect x='17' y='17' width='30' height='30'/%3E%3Cpath d='M32 10.8L53.2 32 32 53.2 10.8 32z'/%3E%3Cpath d='M32 0v10.8M32 53.2V64M0 32h10.8M53.2 32H64'/%3E%3Ccircle cx='32' cy='32' r='6'/%3E%3Cpath d='M0 0l17 17M64 0L47 17M0 64l17-17M64 64L47 47'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 100% auto, 64px 64px;
+  background-repeat: no-repeat, repeat;
+}
+body { color: var(--text); }
+
+/* Bandeau vert en haut (sans motif ni arcs) */
+.hero, .page-head {
+  margin: calc(-1 * (var(--safe-t) + 22px)) calc(-1 * max(18px, calc((100% - 560px) / 2))) 18px;
+  padding: calc(var(--safe-t) + 22px) max(18px, calc((100% - 560px) / 2)) 22px;
+  background: var(--green-deep); color: #fff; border-radius: 0 0 26px 26px;
+}
+.hero .date, .page-head p { color: #c3d4ca; }
+.hero h1, .page-head h1 { color: #fff; }
+.page-head p b { color: var(--gold-soft); }
+.next { color: #c3d4ca; }
+.next b { color: #fff; }
+.next .i-inl { color: var(--gold-soft); }
+.ring-bg { stroke: rgba(255, 255, 255, 0.14); }
+.ring-fg { stroke: var(--gold-soft); filter: none; }
+.ring span { color: #fff; }
+
+/* Cartes */
+.card, .rem, .task-row, .time-row, .toggle-row, .parole, .banner {
+  background: var(--surface); border: 1px solid var(--line);
+  box-shadow: 0 8px 22px -16px rgba(15, 59, 44, 0.35);
+}
+.card { background: var(--surface); }
+.card.done { border-color: var(--c); box-shadow: 0 0 0 1px var(--c), 0 10px 26px -16px var(--c); }
+.card.done::after { background: linear-gradient(110deg, transparent 30%, color-mix(in srgb, var(--c) 10%, transparent) 50%, transparent 70%); background-size: 250% 100%; }
+.emoji { background: color-mix(in srgb, var(--c) 12%, transparent); }
+.check, .prayer.done .ck { color: #fff; }
+.count .of, .hint, .pcount ~ *, .sub { color: var(--muted); }
+.rem, .task-row { border-left: 4px solid var(--c, var(--green)); }
+
+/* Jauges */
+.gauge i, .bar { background: #ebe5d7; }
+.gauge i.on { background: var(--c); box-shadow: none; }
+.bar b, .bar.big b { background: var(--c); box-shadow: none; }
+
+/* Prières */
+.prayer .bubble { background: var(--surface); border-color: color-mix(in srgb, var(--c) 60%, transparent); }
+.prayer.done .bubble { background: var(--c); border-color: var(--c); box-shadow: 0 6px 14px -6px var(--c); }
+.prayer.locked .bubble { border-color: #c9c1b0; background: transparent; }
+.prayer .ptime { color: var(--muted); }
+
+/* Tahsin verrouillé */
+.tahsin-card.locked { background: var(--surface); border-color: var(--line); }
+.tahsin-card.locked .emoji { background: var(--surface2); color: var(--muted); }
+
+/* Boutons */
+.btn, .fab { background: var(--green-deep); color: #fff; box-shadow: 0 10px 24px -14px rgba(15, 59, 44, 0.8); }
+.btn.ghost { background: var(--surface2); color: var(--text); box-shadow: none; }
+.btn.danger { color: #b3261e; }
+.mini-btn { background: color-mix(in srgb, var(--c) 10%, var(--surface)); color: color-mix(in srgb, var(--c) 70%, #000); border-color: color-mix(in srgb, var(--c) 40%, transparent); }
+.minus { color: var(--text); }
+.minus::before { background: var(--surface2); border-color: var(--line); }
+.minus:active::before { background: #e4ddcd; }
+.sheet .close { background: var(--surface2); color: var(--text); }
+.seg-switch { background: var(--surface2); }
+.seg-switch button { color: var(--muted); }
+.seg-switch button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 4px rgba(15, 59, 44, 0.15); }
+.quick button, .day-pick button, .stepper button { background: var(--surface2); color: var(--text); }
+.day-pick button.on, .days b.on { background: var(--green); color: #fff; }
+.days b { background: var(--surface2); color: var(--muted); }
+.days b.today { outline-color: var(--text); }
+.tag, .kbd { background: var(--surface2); color: var(--muted); }
+
+/* Bandeaux d'info */
+.banner { color: var(--muted); }
+.banner b { color: var(--text); }
+.banner.cta { background: #f7efda; border-color: #e3cf9c; }
+.banner.warn { background: #fbefe9; border-color: #efc7b5; }
+
+/* Interrupteurs */
+.switch span { background: #d6cfbf; box-shadow: inset 0 0 0 1px #c6bead; }
+.switch span::before { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); }
+.switch input:checked + span { background: var(--c, var(--green)); box-shadow: none; }
+
+/* Champs */
+.field > span { color: var(--muted); }
+.field input, .field select { background: var(--surface); border-color: var(--line); color: var(--text); }
+.field input:focus, .field select:focus { border-color: var(--green); }
+select option { background: #fff; color: var(--text); }
+
+/* Horaires */
+.time-row.current { background: #e6f0ea; border-color: var(--green); }
+.time-row.current .t { color: var(--green); }
+.toggle-row { color: var(--text); }
+.note, .source, .empty { color: var(--muted); }
+
+/* Barre du bas (comme Masjid) */
+.tabs { background: var(--green-deep); border-top: 0; box-shadow: 0 -10px 26px -18px rgba(15, 59, 44, 0.9); }
+.tabs button { color: #a9bfb3; }
+.tabs button.on { background: rgba(255, 255, 255, 0.09); color: #fff; }
+.tabs button.on .ti svg { color: var(--gold-soft); }
+
+/* Feuilles */
+#sheet-root .scrim { background: rgba(12, 32, 24, 0.45); }
+#sheet-root .sheet { background: var(--bg2); border-color: var(--line); }
+.grab { background: #d6cfbf; }
+.tahsin-head { background: linear-gradient(var(--bg2) 85%, transparent); }
+.tahsin-meta { color: var(--muted); }
+
+/* Messages */
+#toast { background: var(--green-deep); color: #fff; border-color: transparent; }
+.toast-action { color: var(--gold-soft); background: rgba(230, 211, 163, 0.12); border-color: rgba(230, 211, 163, 0.4); }
+.all-done { background: #e6f0ea; color: var(--green-deep); border: 1px solid #bcd6c8; }
+.float-text { text-shadow: 0 2px 8px rgba(255, 255, 255, 0.8); }
+.loading { color: var(--muted); }
+.spinner { border-color: var(--surface2); border-top-color: var(--green); }
+button:focus-visible, .switch input:focus-visible + span { outline-color: var(--green); }
+.stretch:focus-visible::after { outline-color: var(--green); }

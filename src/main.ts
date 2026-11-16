@@ -11,10 +11,10 @@ let notif: NotifState = "default";
 
 const app = document.getElementById("app")!;
 const DAYS = ["L", "M", "M", "J", "V", "S", "D"];
-const GOLD = "#ffc93c";
-const PRAYER_COLOR = "#5ef2b0";
-const TAHSIN_COLOR: Record<TahsinSession, string> = { matin: "#ffc93c", soir: "#a78bfa" };
-const FX_COLORS = ["#ffc93c", "#5ef2b0", "#a78bfa", "#ffffff", "#4cc9ff"];
+const GOLD = "#a8873a";
+const PRAYER_COLOR = "#1f5c45";
+const TAHSIN_COLOR: Record<TahsinSession, string> = { matin: "#a8873a", soir: "#2c6e63" };
+const FX_COLORS = ["#1f5c45", "#a8873a", "#2c6e63", "#d9b45a", "#0f3b2c"];
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 const pulse = (el: Element | null | undefined, cls: string) => {
