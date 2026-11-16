@@ -469,7 +469,7 @@ function renderTimes() {
   const rows = t
     ? [
         { key: "fajr", name: "Fajr", time: t.fajr, info: "" },
-        { key: "shuruq", name: "Chourouq", time: t.shuruq, info: "lever du soleil, ce n'est pas une prière" },
+        { key: "shuruq", name: "Chourouq", time: t.shuruq, info: "lever du soleil" },
         { key: "dhuhr", name: "Dhouhr", time: t.dhuhr, info: "" },
         { key: "asr", name: "Asr", time: t.asr, info: "" },
         { key: "maghrib", name: "Maghrib", time: t.maghrib, info: "" },

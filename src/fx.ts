@@ -60,7 +60,11 @@ function loop() {
   }
   ctx.globalAlpha = 1;
   if (parts.length) requestAnimationFrame(loop);
-  else running = false;
+  else {
+    running = false;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    canvas.classList.remove("on");
+  }
 }
 
 function star(s: number) {
@@ -75,6 +79,7 @@ function star(s: number) {
 }
 
 function start() {
+  canvas.classList.add("on");
   if (!running) {
     running = true;
     requestAnimationFrame(loop);
