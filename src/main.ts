@@ -167,7 +167,7 @@ function renderToday() {
         ${tahsinCardHTML("matin")}
         ${tahsinCardHTML("soir")}
       </section>
-      <div class="all-done" id="all-done">🎉 Journée complète, qu'Allah l'accepte&nbsp;!</div>
+      <div class="all-done" id="all-done">🎉 Journée complète&nbsp;!</div>
     `;
     bindBanner();
     view.querySelectorAll<HTMLButtonElement>(".prayer").forEach(bindPrayer);
@@ -263,10 +263,7 @@ function bindPrayer(el: HTMLButtonElement) {
     buzz(14);
     if (s.prayersDone + 1 === 5) {
       buzz([30, 60, 30, 60, 80]);
-      setTimeout(() => {
-        confetti([PRAYER_COLOR, ...FX_COLORS]);
-        toast("🕌 Les 5 prières sont faites, qu'Allah les accepte&nbsp;!");
-      }, 150);
+      setTimeout(() => confetti([PRAYER_COLOR, ...FX_COLORS]), 150);
     }
   });
 }
