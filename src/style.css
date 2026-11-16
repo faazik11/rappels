@@ -629,3 +629,11 @@ select option { background: #fff; color: var(--text); }
 .spinner { border-color: var(--surface2); border-top-color: var(--green); }
 button:focus-visible, .switch input:focus-visible + span { outline-color: var(--green); }
 .stretch:focus-visible::after { outline-color: var(--green); }
+
+/* iPhone : pas de bande claire sous la barre verte.
+   Le fond « hors page » est vert (il n'apparaît que sous la barre / derrière la barre d'état),
+   et la barre se prolonge vers le bas au cas où l'écran serait plus haut que la page. */
+html { background: var(--green-deep); }
+.tabs::after {
+  content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 200px; background: var(--green-deep);
+}
