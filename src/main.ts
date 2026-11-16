@@ -216,7 +216,7 @@ function updateToday(s = dayState()) {
     card.querySelector(".hint")!.textContent = !t.open
       ? `Disponible à ${t.opensAt}`
       : t.pct >= 1
-        ? "Validé, qu'Allah l'accepte"
+        ? "Validé"
         : `${t.done}/${t.total} récitations`;
     (card.querySelector(".validate-all") as HTMLElement).style.display = t.open && t.pct < 1 ? "" : "none";
   }
@@ -302,10 +302,7 @@ function celebrateTahsin(session: TahsinSession, anchor?: HTMLElement) {
     const r = anchor.getBoundingClientRect();
     burst(r.left + r.width / 2, r.top + r.height / 2, TAHSIN_COLOR[session], 28);
   }
-  setTimeout(() => {
-    confetti([TAHSIN_COLOR[session], ...FX_COLORS]);
-    toast(`📿 Tahsin du ${session} validé, qu'Allah l'accepte&nbsp;!`);
-  }, 120);
+  setTimeout(() => confetti([TAHSIN_COLOR[session], ...FX_COLORS]), 120);
 }
 
 // ------------------------------------------------------------ Feuille du Tahsin
