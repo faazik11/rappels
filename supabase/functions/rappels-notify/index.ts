@@ -52,8 +52,52 @@ async function send(devices: string[], msgFor: (device: string) => Msg) {
   return sent;
 }
 
+const PRAYERS = [
+  { key: "fajr", name: "Fajr", tahsin: "matin" },
+  { key: "dhuhr", name: "Dhouhr" },
+  { key: "asr", name: "Asr" },
+  { key: "maghrib", name: "Maghrib", tahsin: "soir" },
+  { key: "isha", name: "Icha" },
+] as const;
+
+/** Notifs des prières (+ Tahsin au Fajr et au Maghrib), selon la ville de chaque téléphone */
+async function prayerTick(time: string, day: string) {
+  const { data: subs } = await db.from("rappels_push").select("device");
+  const devices = [...new Set((subs ?? []).map((s) => s.device))];
+  if (!devices.length) return 0;
+  const { data: devs } = await db.from("rappels_devices").select("key, city_id, settings").in("key", devices);
+  const byCity = new Map<number, { key: string; settings: Record<string, unknown> }[]>();
+  for (const d of devs ?? []) {
+    if (!byCity.has(d.city_id)) byCity.set(d.city_id, []);
+    byCity.get(d.city_id)!.push({ key: d.key, settings: d.settings ?? {} });
+  }
+  let sent = 0;
+  for (const [city, list] of byCity) {
+    const { data: t } = await db.rpc("rappels_day_times", { p_city: city, p_day: day });
+    if (!t) continue;
+    for (const p of PRAYERS) {
+      if (t[p.key] !== time) continue;
+      for (const d of list) {
+        const notif = (d.settings.notif ?? {}) as Record<string, boolean>;
+        if (notif[p.key] !== false) {
+          sent += await send([d.key], () => ({ title: `🕌 ${p.name} · ${time}`, body: `C'est l'heure de la prière du ${p.name}.`, tag: `prayer-${p.key}` }));
+        }
+        if ("tahsin" in p && notif.tahsin !== false) {
+          sent += await send([d.key], () => ({ title: `📿 Tahsin du ${p.tahsin}`, body: `Pense à réciter ton tahsin du ${p.tahsin}.`, tag: `tahsin-${p.tahsin}` }));
+        }
+      }
+    }
+  }
+  return sent;
+}
+
 async function tick() {
   const { time, weekday, day } = paris(new Date());
+  const prayersSent = await prayerTick(time, day).catch((e) => (console.error("prières", String(e)), 0));
+  return { ...(await customTick(time, weekday, day)), prayersSent };
+}
+
+async function customTick(time: string, weekday: number, day: string) {
   const { data: rems } = await db
     .from("rappels_reminders")
     .select("device, id, text, task_id, skip_if_done, days")

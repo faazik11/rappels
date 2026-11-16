@@ -4,15 +4,6 @@
 export const SUPABASE_URL = "https://mqeiqlqwmktrrgjzrshz.supabase.co";
 const SUPABASE_KEY = "sb_publishable_0mt-3rvdmw0FUYRd8CZuUg_qyTkU0Ey";
 
-export interface Task {
-  id: string;
-  name: string;
-  emoji: string;
-  color: string;
-  goal: number;
-  order: number;
-}
-
 export interface Reminder {
   id: string;
   time: string; // "HH:MM"
@@ -23,35 +14,61 @@ export interface Reminder {
   enabled: boolean;
 }
 
-export const COLORS = ["#ff7a59", "#ffc93c", "#5ef2b0", "#4cc9ff", "#a78bfa", "#ff6bcb", "#f97316", "#84cc16"];
+export interface DayTimes {
+  day: string;
+  fajr: string;
+  shuruq: string;
+  dhuhr: string;
+  asr: string;
+  maghrib: string;
+  isha: string;
+  exact: boolean;
+}
 
-export function todayKey(d = new Date()): string {
+export interface Settings {
+  notif?: Partial<Record<PrayerKey | "tahsin", boolean>>;
+  tahsinView?: "both" | "ph" | "ar";
+}
+
+export interface City {
+  id: number;
+  name: string;
+}
+
+export type PrayerKey = "fajr" | "dhuhr" | "asr" | "maghrib" | "isha";
+export const PRAYERS: { key: PrayerKey; name: string }[] = [
+  { key: "fajr", name: "Fajr" },
+  { key: "dhuhr", name: "Dhouhr" },
+  { key: "asr", name: "Asr" },
+  { key: "maghrib", name: "Maghrib" },
+  { key: "isha", name: "Icha" },
+];
+
+export function dateKey(d = new Date()): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+export function addDays(key: string, n: number) {
+  const [y, m, d] = key.split("-").map(Number);
+  return dateKey(new Date(y, m - 1, d + n));
+}
+/** "HH:MM" du jour `day` → Date locale */
+export function at(day: string, hhmm: string) {
+  const [y, m, d] = day.split("-").map(Number);
+  const [h, mi] = hhmm.split(":").map(Number);
+  return new Date(y, m - 1, d, h, mi);
 }
 
 export function uid(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 }
 
-function seed(): { tasks: Task[]; reminders: Reminder[] } {
-  const venteId = uid();
-  return {
-    tasks: [{ id: venteId, name: "Vente", emoji: "💰", color: COLORS[0], goal: 5, order: 0 }],
-    reminders: [
-      { id: uid(), time: "09:00", days: [1, 2, 3, 4, 5], text: "C'est parti, objectif du jour !", taskId: venteId, skipIfDone: false, enabled: true },
-      { id: uid(), time: "14:00", days: [1, 2, 3, 4, 5], text: "Point de mi-journée", taskId: venteId, skipIfDone: true, enabled: true },
-      { id: uid(), time: "17:30", days: [1, 2, 3, 4, 5], text: "Dernière ligne droite 💪", taskId: venteId, skipIfDone: true, enabled: true },
-    ],
-  };
-}
-
 const LS = {
   key: "rappels:key",
-  data: "rappels:data",
-  progress: (d: string) => "rappels:progress:" + d,
+  state: "rappels:state2",
+  cities: "rappels:cities",
   queue: "rappels:queue",
 };
 
@@ -80,12 +97,10 @@ function deviceKey(): string {
   return k;
 }
 
+const HEADERS = { apikey: SUPABASE_KEY, "Content-Type": "application/json" };
+
 export async function rpc<T = unknown>(fn: string, args: Record<string, unknown>): Promise<T> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
-    method: "POST",
-    headers: { apikey: SUPABASE_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify(args),
-  });
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, { method: "POST", headers: HEADERS, body: JSON.stringify(args) });
   if (!res.ok) throw new Error(`${fn} : ${res.status} ${await res.text()}`);
   const txt = await res.text();
   return (txt ? JSON.parse(txt) : null) as T;
@@ -94,12 +109,25 @@ export async function rpc<T = unknown>(fn: string, args: Record<string, unknown>
 type QueuedCall = { fn: string; args: Record<string, unknown> };
 type Listener = () => void;
 
+interface Saved {
+  loadedFor: string;
+  cityId: number;
+  settings: Settings;
+  times: (DayTimes | null)[];
+  reminders: Reminder[];
+  progress: Record<string, Record<string, number>>;
+  vapidPublic: string;
+}
+
 class Store {
-  tasks: Task[] = [];
-  reminders: Reminder[] = [];
-  counts: Record<string, number> = {};
-  date = todayKey();
   ready = false;
+  loadedFor = ""; // jour local pour lequel les horaires ont été chargés
+  cityId = 54;
+  settings: Settings = {};
+  times: (DayTimes | null)[] = [null, null, null]; // hier, aujourd'hui, demain
+  reminders: Reminder[] = [];
+  progress: Record<string, Record<string, number>> = {};
+  cities: City[] = readJSON(LS.cities, []);
   vapidPublic = "";
   readonly key = deviceKey();
   private listeners = new Set<Listener>();
@@ -109,69 +137,67 @@ class Store {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
   }
-  private emit() {
+  emit() {
     this.listeners.forEach((fn) => fn());
   }
 
   async init() {
-    // 1. Affichage immédiat depuis la copie locale
-    const cached = readJSON<{ tasks: Task[]; reminders: Reminder[]; vapidPublic?: string } | null>(LS.data, null);
-    if (cached) {
-      this.tasks = cached.tasks;
-      this.reminders = cached.reminders;
-      this.vapidPublic = cached.vapidPublic || "";
-      this.counts = readJSON(LS.progress(this.date), {});
+    const saved = readJSON<Saved | null>(LS.state, null);
+    if (saved) {
+      Object.assign(this, saved);
       this.ready = true;
       this.emit();
     }
-    // 2. Synchronisation avec le serveur
     try {
       await this.flush();
       await this.pull();
     } catch (e) {
       console.warn("Hors ligne, on garde la copie locale", e);
-      if (!this.ready) {
-        const s = seed();
-        this.tasks = s.tasks;
-        this.reminders = s.reminders;
-        this.ready = true;
-        this.saveLocal();
-        this.emit();
-      }
     }
+    this.loadCities().catch(() => {});
     addEventListener("online", () => this.flush().then(() => this.pull()).catch(() => {}));
   }
 
-  /** Recharge depuis le serveur */
   async pull() {
-    const d = await rpc<{ isNew: boolean; vapidPublic: string; tasks: Task[]; reminders: Reminder[]; counts: Record<string, number> }>(
-      "rappels_load",
-      { p_key: this.key, p_day: this.date }
-    );
+    const today = dateKey();
+    const d = await rpc<Saved & { isNew: boolean }>("rappels_load", { p_key: this.key, p_day: today });
+    this.loadedFor = today;
+    this.cityId = d.cityId;
+    this.settings = d.settings || {};
+    this.times = d.times;
+    this.reminders = d.reminders;
+    // On garde les validations locales pas encore envoyées
+    const pending = readJSON<QueuedCall[]>(LS.queue, []);
+    this.progress = pending.length ? { ...d.progress, ...this.progress } : d.progress || {};
     this.vapidPublic = d.vapidPublic;
-    if (d.isNew && !d.tasks.length && !readJSON(LS.data, null)) {
-      // Premier lancement : tâche et rappels d'exemple
-      const s = seed();
-      this.tasks = s.tasks;
-      this.reminders = s.reminders;
-      s.tasks.forEach((t) => this.call("rappels_save_task", { p: t }));
-      s.reminders.forEach((r) => this.call("rappels_save_reminder", { p: r }));
-    } else {
-      this.tasks = d.tasks;
-      this.reminders = d.reminders;
-      this.counts = d.counts;
-      writeJSON(LS.progress(this.date), this.counts);
-    }
     this.ready = true;
-    this.saveLocal();
+    this.save();
     this.emit();
   }
 
-  private saveLocal() {
-    writeJSON(LS.data, { tasks: this.tasks, reminders: this.reminders, vapidPublic: this.vapidPublic });
+  async loadCities() {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rappels_cities?select=id,name&order=name`, { headers: HEADERS });
+    if (res.ok) {
+      this.cities = await res.json();
+      writeJSON(LS.cities, this.cities);
+      this.emit();
+    }
   }
 
-  /** Envoie une modification au serveur ; si pas de réseau, elle est gardée et renvoyée plus tard */
+  private save() {
+    const s: Saved = {
+      loadedFor: this.loadedFor,
+      cityId: this.cityId,
+      settings: this.settings,
+      times: this.times,
+      reminders: this.reminders,
+      progress: this.progress,
+      vapidPublic: this.vapidPublic,
+    };
+    writeJSON(LS.state, s);
+  }
+
+  /** Envoie une modification au serveur ; sans réseau, elle est gardée et renvoyée plus tard */
   private call(fn: string, args: Record<string, unknown>) {
     const q = readJSON<QueuedCall[]>(LS.queue, []);
     q.push({ fn, args: { p_key: this.key, ...args } });
@@ -194,66 +220,87 @@ class Store {
     }
   }
 
-  /** À appeler régulièrement : remet les jauges à zéro quand on change de jour */
+  // ---------- Journée de prière ----------
+  /** Horaires d'un jour (si chargés) */
+  timesFor(day: string): DayTimes | null {
+    return this.times.find((t) => t && t.day === day) || null;
+  }
+
+  /** La « journée » commence au Fajr : avant le Fajr, on est encore dans la journée d'hier */
+  appDay(now = new Date()): string {
+    const today = dateKey(now);
+    const t = this.timesFor(today);
+    if (t && now < at(today, t.fajr)) return addDays(today, -1);
+    return today;
+  }
+
+  /** À appeler régulièrement : recharge quand on change de jour */
   checkDay() {
-    const k = todayKey();
-    if (k === this.date) return false;
-    this.date = k;
-    this.counts = readJSON(LS.progress(k), {});
+    if (this.loadedFor && this.loadedFor !== dateKey()) {
+      this.pull().catch(() => {});
+      return true;
+    }
+    return false;
+  }
+
+  // ---------- Progression ----------
+  value(day: string, key: string) {
+    return this.progress[day]?.[key] || 0;
+  }
+
+  bump(day: string, key: string, delta: number, max: number) {
+    const cur = this.value(day, key);
+    const next = Math.max(0, Math.min(max, cur + delta));
+    if (next === cur) return cur;
+    this.progress = { ...this.progress, [day]: { ...(this.progress[day] || {}), [key]: next } };
+    this.save();
     this.emit();
-    this.pull().catch(() => {});
-    return true;
+    this.call("rappels_bump", { p_day: day, p_task: key, p_delta: next - cur });
+    return next;
   }
 
-  // ---------- Actions ----------
-  count(taskId: string) {
-    return this.counts[taskId] || 0;
-  }
-
-  bump(taskId: string, delta: 1 | -1) {
-    const cur = this.count(taskId);
-    if (delta < 0 && cur <= 0) return;
-    this.counts = { ...this.counts, [taskId]: cur + delta };
-    writeJSON(LS.progress(this.date), this.counts);
+  setValues(day: string, values: Record<string, number>) {
+    this.progress = { ...this.progress, [day]: { ...(this.progress[day] || {}), ...values } };
+    this.save();
     this.emit();
-    this.call("rappels_bump", { p_day: this.date, p_task: taskId, p_delta: delta });
+    this.call("rappels_set_progress", { p_day: day, p_values: values });
   }
 
-  saveTask(t: Task) {
-    const i = this.tasks.findIndex((x) => x.id === t.id);
-    if (i >= 0) this.tasks[i] = t;
-    else this.tasks.push(t);
-    this.tasks.sort((a, b) => a.order - b.order);
-    this.saveLocal();
+  // ---------- Réglages ----------
+  setCity(id: number) {
+    this.cityId = id;
+    this.save();
     this.emit();
-    this.call("rappels_save_task", { p: t });
+    this.call("rappels_set_city", { p_city: id });
+    this.flush().then(() => this.pull()).catch(() => {});
   }
 
-  deleteTask(id: string) {
-    this.tasks = this.tasks.filter((t) => t.id !== id);
-    this.reminders = this.reminders.map((r) => (r.taskId === id ? { ...r, taskId: null, skipIfDone: false } : r));
-    this.saveLocal();
+  setSettings(s: Settings) {
+    this.settings = s;
+    this.save();
     this.emit();
-    this.call("rappels_delete_task", { p_id: id });
+    this.call("rappels_set_settings", { p_settings: s });
   }
 
+  // ---------- Rappels personnels ----------
   saveReminder(r: Reminder) {
     const i = this.reminders.findIndex((x) => x.id === r.id);
     if (i >= 0) this.reminders[i] = r;
     else this.reminders.push(r);
     this.reminders.sort((a, b) => a.time.localeCompare(b.time));
-    this.saveLocal();
+    this.save();
     this.emit();
     this.call("rappels_save_reminder", { p: r });
   }
 
   deleteReminder(id: string) {
     this.reminders = this.reminders.filter((r) => r.id !== id);
-    this.saveLocal();
+    this.save();
     this.emit();
     this.call("rappels_delete_reminder", { p_id: id });
   }
 
+  // ---------- Notifications ----------
   async savePush(sub: PushSubscription) {
     const j = sub.toJSON();
     await rpc("rappels_save_push", { p_key: this.key, p_endpoint: j.endpoint, p_p256dh: j.keys!.p256dh, p_auth: j.keys!.auth });
