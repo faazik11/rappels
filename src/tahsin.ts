@@ -38,3 +38,41 @@ export function tahsinItems(session: TahsinSession) {
 }
 
 export const tahsinKey = (session: TahsinSession, id: string) => `${session === "matin" ? "tm" : "ts"}:${id}`;
+
+/** Taille des images (largeur, hauteur) : réserve la place avant chargement, pour que la liste ne saute pas */
+export const TAHSIN_IMG: Record<string, [number, number]> = {
+  "amana-rrasoul-ar": [652, 780],
+  "amana-rrasoul-ph": [695, 768],
+  "aoudhou-samii-ar": [651, 128],
+  "aoudhou-samii-ph": [695, 91],
+  "astaghfirou-ar": [646, 159],
+  "astaghfirou-ph": [694, 146],
+  "ayat-al-koursi-ar": [646, 470],
+  "ayat-al-koursi-ph": [698, 557],
+  "bismillah-alladhi-ar": [646, 214],
+  "bismillah-alladhi-ph": [695, 146],
+  "falaq-ar": [652, 369],
+  "falaq-ph": [696, 312],
+  "hasbiya-ar": [644, 159],
+  "hasbiya-ph": [693, 147],
+  "houwa-llah-ar": [652, 550],
+  "houwa-llah-ph": [698, 641],
+  "ikhlas-ar": [651, 218],
+  "ikhlas-ph": [692, 274],
+  "inna-rabbi-ar": [646, 582],
+  "inna-rabbi-ph": [699, 642],
+  "kalimat-ar": [642, 132],
+  "kalimat-ph": [692, 97],
+  "nas-ar": [652, 440],
+  "nas-ph": [695, 328],
+  "rabbana-atina-ar": [643, 241],
+  "rabbana-atina-ph": [695, 255],
+  "raditou-ar": [639, 131],
+  "raditou-ph": [695, 145],
+  "soubhana-ar": [645, 332],
+  "soubhana-ph": [692, 311],
+  "taawwudh-ar": [379, 72],
+  "taawwudh-ph": [692, 88],
+  "ya-hayyou-ar": [646, 234],
+  "ya-hayyou-ph": [694, 147],
+};

@@ -1,6 +1,6 @@
 import "./style.css";
 import { store, uid, PRAYERS, at, addDays, type Reminder } from "./store";
-import { TAHSIN, tahsinItems, tahsinKey, type TahsinSession } from "./tahsin";
+import { TAHSIN, TAHSIN_IMG, tahsinItems, tahsinKey, type TahsinSession } from "./tahsin";
 import { icon, inl } from "./icons";
 import { burst, confetti, floatText, ripple, buzz } from "./fx";
 import { registerSW, notifState, enableNotifications, refreshSubscription, listenForeground, type NotifState } from "./notifications";
@@ -36,13 +36,13 @@ const fmtDelay = (ms: number) => {
 // ------------------------------------------------------------ Squelette
 app.innerHTML = `
   <main id="view"></main>
-  <nav class="tabs">
+  <nav class="tabs" aria-label="Navigation principale">
     <button data-tab="today"><span class="ti">${icon("sunrise")}</span><span>Aujourd'hui</span></button>
     <button data-tab="times"><span class="ti">${icon("mosque")}</span><span>Horaires</span></button>
     <button data-tab="reminders"><span class="ti">${icon("bell")}</span><span>Rappels</span></button>
   </nav>
   <div id="sheet-root"></div>
-  <div id="toast"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
 `;
 const view = document.getElementById("view")!;
 const sheetRoot = document.getElementById("sheet-root")!;
@@ -57,12 +57,18 @@ app.querySelectorAll<HTMLButtonElement>(".tabs button").forEach((b) =>
 );
 
 let toastTimer = 0;
-function toast(html: string) {
+function toast(html: string, action?: { label: string; run: () => void }) {
   const t = document.getElementById("toast")!;
-  t.innerHTML = html;
+  t.innerHTML = `<span class="toast-msg">${html}</span>${action ? `<button class="toast-action">${action.label}</button>` : ""}`;
+  if (action) {
+    t.querySelector(".toast-action")!.addEventListener("click", () => {
+      action.run();
+      t.classList.remove("show");
+    });
+  }
   pulse(t, "show");
   clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => t.classList.remove("show"), 3200);
+  toastTimer = window.setTimeout(() => t.classList.remove("show"), action ? 6000 : 3200);
 }
 
 // ------------------------------------------------------------ Calculs du jour
@@ -105,7 +111,11 @@ function dayState(now = new Date()) {
 let lastSig = "";
 
 function render() {
-  app.querySelectorAll<HTMLButtonElement>(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+  app.querySelectorAll<HTMLButtonElement>(".tabs button").forEach((b) => {
+    b.classList.toggle("on", b.dataset.tab === tab);
+    if (b.dataset.tab === tab) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
+  });
   if (!store.ready) {
     view.innerHTML = `<div class="loading"><div class="spinner"></div></div>`;
     return;
@@ -186,7 +196,7 @@ function tahsinCardHTML(session: TahsinSession) {
         <span class="emoji">${icon(session === "matin" ? "sunrise" : "moon", 26)}</span>
         <span class="check">${icon("check", 16, 3)}</span>
       </div>
-      <h3 class="name">Tahsin du ${session}</h3>
+      <h3 class="name"><button class="stretch open-tahsin">Tahsin du ${session}</button></h3>
       <div class="count"><span class="n">0</span><span class="of">%</span></div>
       <div class="bar"><b></b></div>
       <p class="hint"></p>
@@ -203,6 +213,8 @@ function updateToday(s = dayState()) {
     el.classList.toggle("locked", !p.open);
     el.classList.toggle("current", p.open && !p.done && lastOpen === p.key);
     el.querySelector(".ptime")!.textContent = p.time || "--:--";
+    el.setAttribute("aria-pressed", String(p.done));
+    el.setAttribute("aria-label", `${p.name}, ${p.time}, ${p.done ? "faite" : p.open ? "à faire" : "pas encore entrée"}`);
   });
   const prN = view.querySelector("#pr-n");
   if (prN) prN.textContent = String(s.prayersDone);
@@ -216,6 +228,8 @@ function updateToday(s = dayState()) {
     (card.querySelector(".bar b") as HTMLElement).style.width = t.pct * 100 + "%";
     card.classList.toggle("done", t.pct >= 1);
     card.classList.toggle("locked", !t.open);
+    const label = `Tahsin du ${t.session}, ${Math.round(t.pct * 100)} %` + (!t.open ? `, disponible à ${t.opensAt}` : "");
+    card.querySelector(".open-tahsin")!.setAttribute("aria-label", label);
     card.querySelector(".hint")!.textContent = !t.open
       ? `Disponible à ${t.opensAt}`
       : t.pct >= 1
@@ -290,10 +304,23 @@ function bindTahsinCard(session: TahsinSession) {
 }
 
 function validateAll(session: TahsinSession, anchor?: HTMLElement) {
+  const day = dayState().day;
   const values: Record<string, number> = {};
-  tahsinItems(session).forEach((i) => (values[tahsinKey(session, i.id)] = i.count));
-  store.setValues(dayState().day, values);
+  const before: Record<string, number> = {};
+  tahsinItems(session).forEach((i) => {
+    const k = tahsinKey(session, i.id);
+    values[k] = i.count;
+    before[k] = store.value(day, k);
+  });
+  store.setValues(day, values);
   celebrateTahsin(session, anchor);
+  toast(`Tahsin du ${session} : tout coché`, {
+    label: "Annuler",
+    run: () => {
+      store.setValues(day, before);
+      buzz(10);
+    },
+  });
 }
 
 function celebrateTahsin(session: TahsinSession, anchor?: HTMLElement) {
@@ -306,6 +333,11 @@ function celebrateTahsin(session: TahsinSession, anchor?: HTMLElement) {
 }
 
 // ------------------------------------------------------------ Feuille du Tahsin
+function img(id: string, kind: "ph" | "ar", alt: string) {
+  const [w, h] = TAHSIN_IMG[`${id}-${kind}`] || [700, 200];
+  // Largeur proportionnelle à la brochure (700 px = toute la largeur) : même taille de texte partout
+  return `<img class="${kind}" src="./tahsin/${id}-${kind}.webp" width="${w}" height="${h}" style="width:${Math.min(100, (w / 700) * 100).toFixed(1)}%" alt="${alt}" loading="lazy" decoding="async" />`;
+}
 let sheetUpdate: (() => void) | null = null;
 
 function openTahsinSheet(session: TahsinSession) {
@@ -332,13 +364,14 @@ function openTahsinSheet(session: TahsinSession) {
           (i, idx) => `
         <article class="parole" data-id="${i.id}" style="--c:${color}">
           <div class="parole-top">
-            <span class="pnum">${idx + 1}</span>
+            <span class="pnum" aria-hidden="true">${idx + 1}</span>
             <span class="plabel">${esc(i.label)}</span>
-            <button class="minus" aria-label="Retirer une récitation">−</button>
+            <button class="minus" aria-label="Retirer une récitation"><span aria-hidden="true">−</span></button>
           </div>
+          <button class="stretch parole-hit" aria-label="Parole ${idx + 1} : ${esc(i.label)}"></button>
           <div class="parole-text">
-            <img class="ph" src="./tahsin/${i.id}-ph.png" alt="${esc(i.label)}" loading="lazy" />
-            <img class="ar" src="./tahsin/${i.id}-ar.png" alt="Texte arabe" loading="lazy" />
+            ${img(i.id, "ph", esc(i.label))}
+            ${img(i.id, "ar", "Texte en arabe de la parole " + (idx + 1))}
           </div>
           <div class="parole-foot">
             <div class="gauge">${Array.from({ length: i.count }, () => "<i></i>").join("")}</div>
@@ -365,6 +398,10 @@ function openTahsinSheet(session: TahsinSession) {
           p.querySelectorAll(".gauge i").forEach((g, k) => g.classList.toggle("on", k < n));
           p.querySelector(".pcount")!.textContent = item.count > 1 ? `${n}/${item.count}` : n ? "Dite" : "À dire";
           p.classList.toggle("done", n >= item.count);
+          p.querySelector(".parole-hit")!.setAttribute(
+            "aria-label",
+            `${p.querySelector(".plabel")!.textContent} : ${n} sur ${item.count}${n >= item.count ? ", terminée" : ", toucher pour ajouter une récitation"}`
+          );
         });
       };
       sheetUpdate = update;
@@ -594,6 +631,39 @@ function openSheet(title: string, body: string, onMount: (el: HTMLElement, close
   };
   sheetRoot.querySelector(".scrim")!.addEventListener("click", close);
   el.querySelector(".close")!.addEventListener("click", close);
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      close();
+      removeEventListener("keydown", onKey);
+    }
+  };
+  addEventListener("keydown", onKey);
+  // Glisser vers le bas depuis la poignée / le titre pour fermer
+  const handle = el.querySelectorAll<HTMLElement>(".grab, .sheet-title");
+  let startY = 0;
+  let dy = 0;
+  let dragging = false;
+  handle.forEach((h) => {
+    h.addEventListener("touchstart", (e) => {
+      if ((e.target as HTMLElement).closest("button")) return;
+      dragging = true;
+      startY = e.touches[0].clientY;
+      dy = 0;
+      el.style.transition = "none";
+    }, { passive: true });
+  });
+  el.addEventListener("touchmove", (e) => {
+    if (!dragging) return;
+    dy = Math.max(0, e.touches[0].clientY - startY);
+    el.style.transform = `translateY(${dy}px)`;
+  }, { passive: true });
+  el.addEventListener("touchend", () => {
+    if (!dragging) return;
+    dragging = false;
+    el.style.transition = "";
+    el.style.transform = "";
+    if (dy > 90) close();
+  });
   onMount(el, close);
 }
 
@@ -639,8 +709,10 @@ function openReminderSheet(rem?: Reminder) {
         toast(`${inl("bell")} Rappel à <b>${r.time}</b> enregistré`);
       });
       el.querySelector("#f-del")?.addEventListener("click", () => {
+        const removed = store.reminders.find((x) => x.id === r.id);
         store.deleteReminder(r.id);
         close();
+        if (removed) toast(`${inl("bell")} Rappel de ${removed.time} supprimé`, { label: "Annuler", run: () => store.saveReminder(removed) });
       });
     }
   );
